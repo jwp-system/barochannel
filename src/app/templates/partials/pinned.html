@@ -1,0 +1,10 @@
+{% if views %}
+<details class="pinned" open>
+  <summary>고정된 글 {{ views|length }}</summary>
+  <ul>
+    {% for v in views %}
+    <li><a href="#post-{{ v.post_id }}">{{ v.author_name }}: {{ v.summary }}</a></li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}

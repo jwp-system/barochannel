@@ -1,0 +1,22 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}그룹 관리 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/more">{{ icon("back") }}전체</a>
+<h1>그룹 관리</h1>
+<form class="section" hx-post="/admin/groups">
+  <h2>새 그룹</h2>
+  <div class="row">
+    <input name="name" required maxlength="100" placeholder="그룹 이름" aria-label="새 그룹 이름">
+    <button class="primary">그룹 만들기</button>
+  </div>
+  <p class="muted">그룹을 만든 뒤 그룹 관리자를 지정하면, 그룹 관리자가 채널을 만듭니다.</p>
+</form>
+<section class="section menu">
+  {% for group in groups %}
+  <a class="menu-row" href="/admin/groups/{{ group.id }}"><span class="menu-icon">{{ icon("groups") }}</span><span class="menu-text"><strong>{{ group.name }}</strong>{% if group.archived_at %}<small>보관됨</small>{% endif %}</span>{{ icon("chevron") }}</a>
+  {% else %}
+  <p class="muted menu-empty">아직 그룹이 없습니다.</p>
+  {% endfor %}
+</section>
+{% endblock %}

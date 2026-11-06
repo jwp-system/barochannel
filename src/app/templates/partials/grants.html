@@ -1,0 +1,37 @@
+<h2>권한</h2>
+<p class="muted">미지정은 다음 단계로 넘어갑니다. 사용자 설정이 소속 설정보다 우선합니다.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>대상</th><th>읽기</th><th>쓰기</th><th>답글읽기</th><th>답글쓰기</th></tr></thead>
+  <tbody>
+    {% for grant, name in grants %}
+    <tr hx-post="/permissions/{{ scope_type }}/{{ scope_id }}" hx-trigger="change" hx-include="this"
+        hx-vals='{{ {"subject": grant.subject_type ~ ":" ~ grant.subject_id}|tojson }}'>
+      <td>{{ "사용자" if grant.subject_type == "user" else "소속" }} · {{ name }}</td>
+      {% for field, value in [("read", grant.can_read), ("write", grant.can_write), ("reply_read", grant.can_reply_read), ("reply_write", grant.can_reply_write)] %}
+      <td>
+        <select name="{{ field }}" aria-label="{{ name }} {{ field }}">
+          <option value=""{% if value is none %} selected{% endif %}>미지정</option>
+          <option value="allow"{% if value == "allow" %} selected{% endif %}>허용</option>
+          <option value="deny"{% if value == "deny" %} selected{% endif %}>거부</option>
+        </select>
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<form class="row" hx-post="/permissions/{{ scope_type }}/{{ scope_id }}">
+  <select name="subject" required aria-label="권한 대상">
+    <option value="">대상 선택</option>
+    <optgroup label="소속">
+      {% for department, depth in tree %}<option value="department:{{ department.id }}">{{ "　" * depth }}{{ department.name }}</option>{% endfor %}
+    </optgroup>
+    <optgroup label="사용자">
+      {% for item in subject_users %}<option value="user:{{ item.id }}">{{ item.name }} ({{ item.email }})</option>{% endfor %}
+    </optgroup>
+  </select>
+  <input type="hidden" name="read" value="allow">
+  <button class="soft">읽기 허용으로 추가</button>
+</form>

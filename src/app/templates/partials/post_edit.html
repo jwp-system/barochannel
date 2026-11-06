@@ -1,0 +1,7 @@
+<form id="post-{{ post.id }}" class="card stack" hx-post="/posts/{{ post.id }}/edit" hx-target="this" hx-swap="outerHTML">
+  <textarea name="body" rows="4" maxlength="50000" required>{{ post.body_md }}</textarea>
+  <div class="composer-actions">
+    <button type="button" hx-get="/posts/{{ post.id }}/card">취소</button>
+    <button class="primary">저장</button>
+  </div>
+</form>

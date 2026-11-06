@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}로그인 · 바로채널{% endblock %}
+{% block body %}
+<main class="center-page">
+  <form class="auth" hx-post="/login" hx-target="#login-message">
+    <span class="brand">바로채널</span>
+    <h1>이메일로 로그인해 주세요</h1>
+    <label>이메일 <input type="text" inputmode="email" name="email" required autofocus autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+    <label>비밀번호 <input type="password" name="password" required autocomplete="current-password"></label>
+    <div id="login-message" role="alert"></div>
+    <button class="primary">로그인</button>
+  </form>
+</main>
+{% endblock %}

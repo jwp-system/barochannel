@@ -1,0 +1,71 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}조직 관리 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/more">{{ icon("back") }}전체</a>
+<h1>조직 관리</h1>
+<div id="org-message" role="alert"></div>
+<section class="section">
+<h2>소속</h2>
+<ul class="list">
+  {% for department, depth in tree %}
+  <li style="padding-left: {{ depth * 20 }}px">
+    <form class="row" hx-post="/admin/departments/{{ department.id }}">
+      <input name="name" value="{{ department.name }}" required maxlength="100" aria-label="소속 이름">
+      <select name="parent_id" aria-label="상위 소속">
+        <option value="">최상위</option>
+        {% for other, other_depth in tree %}{% if other.id != department.id %}
+        <option value="{{ other.id }}"{% if other.id == department.parent_id %} selected{% endif %}>{{ "　" * other_depth }}{{ other.name }}</option>
+        {% endif %}{% endfor %}
+      </select>
+      <button>저장</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+<form class="row" hx-post="/admin/departments">
+  <input name="name" required maxlength="100" placeholder="새 소속 이름" aria-label="새 소속 이름">
+  <select name="parent_id" aria-label="상위 소속">
+    <option value="">최상위</option>
+    {% for department, depth in tree %}<option value="{{ department.id }}">{{ "　" * depth }}{{ department.name }}</option>{% endfor %}
+  </select>
+  <button class="primary">소속 추가</button>
+</form>
+</section>
+
+<section class="section">
+<h2>사용자</h2>
+<form class="row" hx-post="/admin/users" hx-target="#org-message">
+  <input name="name" required maxlength="100" placeholder="이름" aria-label="이름">
+  <input type="email" name="email" required placeholder="이메일" aria-label="이메일">
+  <input type="password" name="password" required minlength="8" placeholder="초기 비밀번호" aria-label="초기 비밀번호" autocomplete="new-password">
+  <button class="primary">사용자 등록</button>
+</form>
+<ul class="list">
+  {% for item in users %}
+  <li>
+    <form class="stack" hx-post="/admin/users/{{ item.id }}">
+      <div class="row">
+        <input name="name" value="{{ item.name }}" required maxlength="100" aria-label="이름">
+        <span class="muted">{{ item.email }}</span>
+        <select name="status" aria-label="상태">
+          <option value="active"{% if item.status == "active" %} selected{% endif %}>사용</option>
+          <option value="inactive"{% if item.status == "inactive" %} selected{% endif %}>비활성</option>
+        </select>
+      </div>
+      <div class="row">
+        {% for department, depth in tree %}
+        <label><input type="checkbox" name="department_ids" value="{{ department.id }}"{% if department.id in memberships.get(item.id, []) %} checked{% endif %}> {{ department.name }}</label>
+        {% endfor %}
+        <select name="primary_department_id" aria-label="주 소속">
+          <option value="">주 소속 자동</option>
+          {% for department, depth in tree %}<option value="{{ department.id }}"{% if primary.get(item.id) == department.id %} selected{% endif %}>{{ department.name }}</option>{% endfor %}
+        </select>
+        <button>저장</button>
+      </div>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+</section>
+{% endblock %}

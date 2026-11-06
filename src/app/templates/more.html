@@ -1,0 +1,34 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}전체 · 바로채널{% endblock %}
+{% block content %}
+<h1>전체</h1>
+<section class="section profile">
+  <span class="avatar">{{ user.name[:1] }}</span>
+  <div>
+    <strong>{{ user.name }}</strong>
+    <small>{{ departments|join(", ") if departments else user.email }}</small>
+  </div>
+</section>
+{% if is_system_admin(user) %}
+<section class="section menu">
+  <header class="menu-head"><h2>시스템 관리</h2></header>
+  <a class="menu-row" href="/admin/org"><span class="menu-icon">{{ icon("people") }}</span><span class="menu-text"><strong>조직 관리</strong><small>소속과 사용자</small></span>{{ icon("chevron") }}</a>
+  <a class="menu-row" href="/admin/groups"><span class="menu-icon">{{ icon("groups") }}</span><span class="menu-text"><strong>그룹 관리</strong><small>그룹 생성과 그룹 관리자 지정</small></span>{{ icon("chevron") }}</a>
+  <a class="menu-row" href="/admin/pin/change"><span class="menu-icon">{{ icon("lock") }}</span><span class="menu-text"><strong>PIN 변경</strong></span>{{ icon("chevron") }}</a>
+</section>
+{% endif %}
+{% if manages_groups %}
+<section class="section menu">
+  <header class="menu-head"><h2>그룹 관리자</h2></header>
+  <a class="menu-row" href="/groups"><span class="menu-icon">{{ icon("settings") }}</span><span class="menu-text"><strong>내가 관리하는 그룹</strong><small>채널 생성과 권한 설정</small></span>{{ icon("chevron") }}</a>
+</section>
+{% endif %}
+<section class="section menu">
+  <header class="menu-head"><h2>내 계정</h2></header>
+  {% if not is_system_admin(user) %}
+  <a class="menu-row" href="/account/password"><span class="menu-icon">{{ icon("lock") }}</span><span class="menu-text"><strong>비밀번호 변경</strong></span>{{ icon("chevron") }}</a>
+  {% endif %}
+  <button class="menu-row" hx-post="/logout"><span class="menu-icon">{{ icon("logout") }}</span><span class="menu-text"><strong>로그아웃</strong></span></button>
+</section>
+{% endblock %}

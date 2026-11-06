@@ -1,0 +1,14 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}{{ channel.name }} 설정 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/groups/{{ channel.group_id }}/settings">{{ icon("back") }}{{ channel.group.name }}</a>
+<h1>{{ channel.name }} <span class="tag blue">{{ CHANNEL_TYPES[channel.type] }}</span></h1>
+<form class="section stack" hx-post="/channels/{{ channel.id }}/settings">
+  <h2>기본 정보</h2>
+  <label>채널 이름 <input name="name" value="{{ channel.name }}" required maxlength="100"></label>
+  <label>글 고정 개수 <input type="number" name="pin_limit" value="{{ channel.pin_limit }}" min="0" max="50" required></label>
+  <button class="primary">저장</button>
+</form>
+<section class="section">{% include "partials/grants.html" %}</section>
+{% endblock %}

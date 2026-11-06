@@ -1,0 +1,32 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}{{ group.name }} 설정 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/groups">{{ icon("back") }}내가 관리하는 그룹</a>
+<h1>{{ group.name }}</h1>
+<section class="section">
+  <h2>채널</h2>
+  <ul class="list">
+    {% for channel in channels %}
+    <li class="row">
+      <a class="list-link" href="/channels/{{ channel.id }}/settings">{{ channel.name }}</a>
+      <span class="tag">{{ CHANNEL_TYPES[channel.type] }}</span>
+      <span class="spacer"></span>
+      <button hx-post="/channels/{{ channel.id }}/move" hx-vals='{"direction": "up"}' aria-label="{{ channel.name }} 위로">▲</button>
+      <button hx-post="/channels/{{ channel.id }}/move" hx-vals='{"direction": "down"}' aria-label="{{ channel.name }} 아래로">▼</button>
+    </li>
+    {% else %}
+    <li class="muted">아직 채널이 없습니다.</li>
+    {% endfor %}
+  </ul>
+  <form class="row" hx-post="/groups/{{ group.id }}/channels">
+    <input name="name" required maxlength="100" placeholder="새 채널 이름" aria-label="새 채널 이름">
+    <select name="type" aria-label="채널 유형">
+      {% for key, label in CHANNEL_TYPES.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+    </select>
+    <button class="primary">채널 추가</button>
+  </form>
+  <p class="muted">채널 유형은 만든 뒤 바꿀 수 없습니다.</p>
+</section>
+<section class="section">{% include "partials/grants.html" %}</section>
+{% endblock %}

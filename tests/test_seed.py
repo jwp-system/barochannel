@@ -1,0 +1,114 @@
+import pytest
+from sqlalchemy import func, select
+
+from app.cli import reset_refusal
+from app.core.config import Settings
+from app.core.db import SessionLocal
+from app.models import Attachment, Channel, GroupManager, Post, User, WorkspaceGroup
+from app.seed import EMAIL_DOMAIN, SAMPLE_PASSWORD, seed
+from app.services.permissions import Authorizer, ChannelAccess
+from tests.conftest import Browser, add_user, run
+
+
+def apply_seed() -> None:
+    async def load() -> None:
+        async with SessionLocal() as session:
+            await seed(session)
+
+    run(load())
+
+
+def access(login: str, channel_name: str) -> ChannelAccess:
+    async def load() -> ChannelAccess:
+        async with SessionLocal() as session:
+            user = await session.scalar(select(User).where(User.email == f"{login}@{EMAIL_DOMAIN}"))
+            channel = await session.scalar(select(Channel).where(Channel.name == channel_name))
+            return await Authorizer(session, user).access(channel)
+
+    return run(load())
+
+
+def count(model) -> int:
+    async def load() -> int:
+        async with SessionLocal() as session:
+            return await session.scalar(select(func.count()).select_from(model))
+
+    return run(load())
+
+
+def sign_in(login: str) -> Browser:
+    return Browser().login(f"{login}@{EMAIL_DOMAIN}", SAMPLE_PASSWORD)
+
+
+def test_seed_builds_every_group_with_a_manager() -> None:
+    apply_seed()
+    assert count(WorkspaceGroup) == 3 and count(GroupManager) == 3
+    assert count(User) == 10 and count(Channel) == 11
+    assert count(Post) > 15 and count(Attachment) == 2
+
+
+def test_seed_refuses_non_empty_database() -> None:
+    add_user("plain")
+    with pytest.raises(RuntimeError, match="빈 DB"):
+        apply_seed()
+
+
+def test_seed_admin_starts_in_initial_pin_state() -> None:
+    apply_seed()
+
+    async def load() -> User:
+        async with SessionLocal() as session:
+            return await session.scalar(select(User).where(User.email == "admin@test.local"))
+
+    admin = run(load())
+    assert admin.pin_hash is None and admin.password_hash is None
+
+
+def test_seed_shows_spec_permission_examples() -> None:
+    apply_seed()
+    assert access("haneul", "영업 일반").write is True
+    assert access("jihoon", "영업 일반").write is False
+    assert access("subin", "고객 미팅").read is True
+    assert access("subin", "영업 일반").can_enter is False
+
+
+def test_seed_suggestion_box_is_write_only_except_hr() -> None:
+    apply_seed()
+    assert (access("haneul", "건의함").read, access("haneul", "건의함").write) == (False, True)
+    assert access("seoyeon", "건의함").read is True
+    assert access("haneul", "공지").write is False
+    assert access("seoyeon", "공지").write is True
+
+
+def test_seed_users_can_log_in_and_see_only_their_channels() -> None:
+    apply_seed()
+    page = sign_in("jia").get("/").text
+    assert "개발 일반" in page and "영업 일반" not in page
+
+
+def test_seed_write_only_channel_hides_others_in_real_page() -> None:
+    apply_seed()
+
+    async def channel_id() -> int:
+        async with SessionLocal() as session:
+            return await session.scalar(select(Channel.id).where(Channel.name == "건의함"))
+
+    identifier = run(channel_id())
+    page = sign_in("haneul").get(f"/channels/{identifier}").text
+    assert "정수기" in page and "회의실 예약" not in page
+    page = sign_in("seoyeon").get(f"/channels/{identifier}").text
+    assert "정수기" in page and "회의실 예약" in page
+
+
+@pytest.mark.parametrize(
+    ("debug", "url", "allowed"),
+    [
+        (True, "postgresql+asyncpg://u:p@localhost:5433/d", True),
+        (True, "postgresql+asyncpg://u:p@127.0.0.1/d", True),
+        (False, "postgresql+asyncpg://u:p@localhost:5433/d", False),
+        (True, "postgresql+asyncpg://u:p@db.ncloud.example:5432/d", False),
+    ],
+)
+def test_reset_only_allowed_on_local_debug(debug: bool, url: str, allowed: bool) -> None:
+    settings = Settings(debug=debug, database_url=url)
+    assert (reset_refusal(settings) is None) is allowed

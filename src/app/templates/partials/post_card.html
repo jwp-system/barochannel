@@ -1,0 +1,47 @@
+<article id="post-{{ v.post.id }}" class="card{% if v.is_deleted %} deleted{% endif %}" sse-swap="post-{{ v.post.id }}" hx-swap="outerHTML" hx-target="this">
+  {% if v.is_deleted %}
+  <p class="muted">삭제된 글</p>
+  {% else %}
+  <header>
+    <strong>{{ v.author_name }}</strong>
+    <time>{{ v.post.created_at|time }}</time>
+    {% if v.post.edited_at %}<span class="muted">수정됨</span>{% endif %}
+    {% if v.post.pinned_at %}<span class="tag blue">고정</span>{% endif %}
+  </header>
+  <div class="body">{{ v.body_html|safe }}</div>
+  {% if v.attachments %}
+  <ul class="attachments">
+    {% for file in v.attachments %}
+    <li>
+      {% if file.is_image %}<a href="/attachments/{{ file.id }}" target="_blank" rel="noopener"><img src="/attachments/{{ file.id }}" alt="{{ file.file_name }}" loading="lazy"></a>{% endif %}
+      <a href="/attachments/{{ file.id }}?download=true">{{ file.file_name }}</a>
+      <span class="muted">{{ file.size|filesize }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <div class="reactions">
+    {% for r in v.reactions %}
+    <button class="chip{% if r.mine %} mine{% endif %}" title="{{ r.names|join(', ') }}" {% if v.can_react %}hx-post="/posts/{{ v.post.id }}/reactions" hx-vals='{{ {"emoji": r.emoji}|tojson }}'{% else %}disabled{% endif %}>{{ r.emoji }} {{ r.names|length }}</button>
+    {% endfor %}
+    {% if v.can_react %}
+    <details class="emoji-menu">
+      <summary aria-label="반응 추가">＋</summary>
+      <div>
+        {% for emoji in ["👍", "❤️", "😄", "🎉", "👀", "✅"] %}
+        <button hx-post="/posts/{{ v.post.id }}/reactions" hx-vals='{{ {"emoji": emoji}|tojson }}'>{{ emoji }}</button>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  </div>
+  {% endif %}
+  <footer>
+    {% if v.can_open_thread %}
+    <button class="link" hx-get="/posts/{{ v.post.id }}/thread" hx-target="#thread" hx-swap="innerHTML">답글 {{ v.reply_count }}개</button>
+    {% endif %}
+    {% if v.can_edit %}<button class="link" hx-get="/posts/{{ v.post.id }}/edit">수정</button>{% endif %}
+    {% if v.can_delete %}<button class="link" hx-post="/posts/{{ v.post.id }}/delete" hx-confirm="이 글을 삭제할까요?">삭제</button>{% endif %}
+    {% if v.can_pin %}<button class="link" hx-post="/posts/{{ v.post.id }}/pin">{{ "고정 해제" if v.post.pinned_at else "고정" }}</button>{% endif %}
+  </footer>
+</article>

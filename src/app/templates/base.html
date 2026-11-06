@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}바로채널{% endblock %}</title>
+  <link rel="preload" href="{{ url_for('static', path='fonts/PretendardVariable.woff2') }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ asset('app.css') }}">
+  <script src="{{ asset('htmx.min.js') }}" defer></script>
+  <script src="{{ asset('sse.js') }}" defer></script>
+  <script src="{{ asset('app.js') }}" defer></script>
+</head>
+<body hx-headers='{{ {"X-CSRF-Token": csrf_token(request)}|tojson }}'>
+  {% block body %}{% endblock %}
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

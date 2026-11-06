@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}{% if channel %}# {{ channel.name }} · {% endif %}바로채널{% endblock %}
+{# 타임라인과 쓰레드가 같은 연결을 쓰도록 둘을 감싸는 곳에 둔다. #}
+{% block app_attrs %} hx-ext="sse" sse-connect="/events/{{ channel.id }}"{% endblock %}
+{% block main %}
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h2>{{ current_group.group.name if current_group else "바로채널" }}</h2>
+      {% if is_manager %}<a href="/groups/{{ channel.group_id }}/settings" aria-label="그룹 설정">{{ icon("settings") }}</a>{% endif %}
+    </div>
+    {% if current_group %}
+    {% for type, label in CHANNEL_TYPES.items() %}
+      {% set rows = current_group.channels|selectattr("type", "equalto", type)|list %}
+      {% if rows %}
+      <h3>{{ label }}</h3>
+      <ul>
+        {% for row in rows %}
+        <li><a href="/channels/{{ row.id }}"{% if row.id == channel.id %} aria-current="page"{% endif %}>{{ row.name }}</a></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    {% endfor %}
+    {% endif %}
+  </aside>
+  <main class="timeline-pane">
+    <header class="channel-head">
+      <a class="head-back" href="/" aria-label="홈으로">{{ icon("back") }}</a>
+      <h1>{{ channel.name }}</h1>
+      <span class="tag blue">{{ CHANNEL_TYPES[channel.type] }}</span>
+      {% if is_manager %}<a class="head-link" href="/channels/{{ channel.id }}/settings">설정</a>{% endif %}
+    </header>
+    <section id="pinned" sse-swap="pins-{{ channel.id }}" hx-swap="innerHTML">
+      {% with views = pinned %}{% include "partials/pinned.html" %}{% endwith %}
+    </section>
+    <div class="scroll" id="timeline-scroll">
+      <div id="timeline" sse-swap="ch-{{ channel.id }}" hx-swap="beforeend">
+        {% include "partials/post_page.html" %}
+      </div>
+    </div>
+    {% if can_post %}
+    <form class="composer js-reset" hx-post="/channels/{{ channel.id }}/posts" hx-encoding="multipart/form-data"
+          hx-target="#timeline" hx-swap="beforeend">
+      {% include "partials/composer_fields.html" %}
+    </form>
+    {% elif access.write and channel.type != "talk" %}
+    <p class="notice">{{ CHANNEL_TYPES[channel.type] }} 채널의 글쓰기는 다음 개발 단계에서 열립니다.</p>
+    {% elif not access.write %}
+    <p class="notice">이 채널의 쓰기 권한이 없습니다.</p>
+    {% endif %}
+  </main>
+  <aside class="thread-pane" id="thread" aria-label="쓰레드"></aside>
+{% endblock %}

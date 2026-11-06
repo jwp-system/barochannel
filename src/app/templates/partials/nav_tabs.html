@@ -1,0 +1,4 @@
+{% from "partials/icons.html" import icon %}
+{% for key, href, label in [("home", "/", "홈"), ("todo", "/todo", "내 할 일"), ("more", "/more", "전체")] %}
+<a class="tab{% if active_tab == key %} active{% endif %}" href="{{ href }}"{% if active_tab == key %} aria-current="page"{% endif %}>{{ icon(key) }}<span>{{ label }}</span></a>
+{% endfor %}

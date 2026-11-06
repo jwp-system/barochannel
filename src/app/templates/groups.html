@@ -1,0 +1,14 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}내가 관리하는 그룹 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/more">{{ icon("back") }}전체</a>
+<h1>내가 관리하는 그룹</h1>
+<section class="section menu">
+  {% for group in groups %}
+  <a class="menu-row" href="/groups/{{ group.id }}/settings"><span class="menu-icon">{{ icon("groups") }}</span><span class="menu-text"><strong>{{ group.name }}</strong></span>{{ icon("chevron") }}</a>
+  {% else %}
+  <p class="muted menu-empty">관리하는 그룹이 없습니다.</p>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,16 @@
+<header class="thread-head">
+  <h2>쓰레드</h2>
+  <button class="link js-close-thread">닫기</button>
+</header>
+{% include "partials/thread_root.html" %}
+<div class="scroll">
+  <div id="thread-list" sse-swap="thread-{{ root.post.id }}" hx-swap="beforeend">
+    {% for v in views %}{% include "partials/post_card.html" %}{% endfor %}
+  </div>
+</div>
+{% if can_reply %}
+<form class="composer js-reset" hx-post="/posts/{{ root.post.id }}/replies" hx-encoding="multipart/form-data"
+      hx-target="#thread-list" hx-swap="beforeend">
+  {% include "partials/composer_fields.html" %}
+</form>
+{% endif %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}관리자 확인 · 바로채널{% endblock %}
+{% block body %}
+<main class="center-page">
+  <div class="pin-box">
+    <h1>관리자 PIN을<br>입력해 주세요</h1>
+    <form id="pin-form" hx-post="/admin/pin" hx-target="#pin-message" data-steps="pin">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <input type="hidden" name="pin">
+      <input id="pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" autofocus
+             autocomplete="off" aria-label="관리자 PIN 6자리">
+    </form>
+    <a class="muted" href="/admin/pin/change">PIN 변경</a>
+    {% include "partials/pin_keypad.html" %}
+  </div>
+</main>
+{% endblock %}

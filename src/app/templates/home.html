@@ -1,0 +1,25 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}바로채널{% endblock %}
+{% block content %}
+<h1 class="greeting">{{ user.name }}님,<br>오늘의 채널이에요</h1>
+{% for item in navigation %}
+<section class="section menu">
+  <header class="menu-head">
+    <h2>{{ item.group.name }}</h2>
+    {% if item.managed %}<a href="/groups/{{ item.group.id }}/settings">관리</a>{% endif %}
+  </header>
+  {% for channel in item.channels %}
+  <a class="menu-row" href="/channels/{{ channel.id }}">
+    <span class="menu-icon {{ channel.type }}">{{ icon(channel.type) }}</span>
+    <span class="menu-text"><strong>{{ channel.name }}</strong><small>{{ CHANNEL_TYPES[channel.type] }}</small></span>
+    {{ icon("chevron") }}
+  </a>
+  {% else %}
+  <p class="muted menu-empty">아직 볼 수 있는 채널이 없어요.</p>
+  {% endfor %}
+</section>
+{% else %}
+<div class="empty"><h1>볼 수 있는 채널이 없습니다</h1><p>{{ "시스템 관리는 전체 메뉴에서 할 수 있어요." if is_system_admin(user) else "관리자에게 권한을 요청하세요." }}</p></div>
+{% endfor %}
+{% endblock %}

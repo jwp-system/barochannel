@@ -1,0 +1,4 @@
+<div class="thread-root" sse-swap="root-{{ root.post.id }}" hx-swap="outerHTML">
+  <strong>{{ root.author_name }}</strong>
+  {% if root.is_deleted %}<p class="muted">삭제된 글</p>{% else %}<div class="body">{{ root.body_html|safe }}</div>{% endif %}
+</div>

@@ -1,0 +1,38 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}{{ group.name }} · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/admin/groups">{{ icon("back") }}그룹 관리</a>
+<h1>{{ group.name }}{% if group.archived_at %} <span class="tag">보관됨</span>{% endif %}</h1>
+<section class="section">
+  <h2>기본 정보</h2>
+  <form class="row" hx-post="/admin/groups/{{ group.id }}">
+    <input name="name" value="{{ group.name }}" required maxlength="100" aria-label="그룹 이름">
+    <button>이름 저장</button>
+  </form>
+  <div><button hx-post="/admin/groups/{{ group.id }}/archive"{% if not group.archived_at %} hx-confirm="그룹을 보관하면 소속 채널이 모두 닫힙니다."{% endif %}>{{ "보관 해제" if group.archived_at else "그룹 보관" }}</button></div>
+</section>
+<section class="section">
+  <h2>그룹 관리자</h2>
+  <p class="muted">그룹 관리자는 이 그룹의 채널을 만들고 권한을 설정합니다.</p>
+  <ul class="list">
+    {% for manager in managers %}
+    <li class="row">
+      <span class="list-link">{{ manager.name }}</span>
+      <span class="muted">{{ manager.email }}</span>
+      <span class="spacer"></span>
+      <button hx-post="/admin/groups/{{ group.id }}/managers/{{ manager.id }}/delete" aria-label="{{ manager.name }} 해제">해제</button>
+    </li>
+    {% else %}
+    <li class="muted">아직 지정된 관리자가 없습니다.</li>
+    {% endfor %}
+  </ul>
+  <form class="row" hx-post="/admin/groups/{{ group.id }}/managers">
+    <select name="user_id" required aria-label="그룹 관리자 선택">
+      <option value="">사용자 선택</option>
+      {% for item in candidates %}<option value="{{ item.id }}">{{ item.name }} ({{ item.email }})</option>{% endfor %}
+    </select>
+    <button class="primary">관리자 지정</button>
+  </form>
+</section>
+{% endblock %}
