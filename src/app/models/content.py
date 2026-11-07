@@ -1,6 +1,18 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    false,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -15,6 +27,8 @@ class Post(Base):
     parent_post_id: Mapped[int | None] = mapped_column(ForeignKey("post.id"), index=True)
     author_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
     body_md: Mapped[str] = mapped_column(Text)
+    # 상신 전 결재 문서. 작성자 외에는 어디에도 보이지 않는다.
+    is_draft: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pinned_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -49,6 +63,25 @@ class Attachment(Base):
     @property
     def is_image(self) -> bool:
         return self.mime.startswith("image/")
+
+
+class MentionAck(Base):
+    """멘션 대상자마다 한 행이다. acked_at이 비어 있으면 미확인이다."""
+
+    __tablename__ = "mention_ack"
+    __table_args__ = (
+        Index(
+            "ix_mention_ack_pending",
+            "user_id",
+            postgresql_where=text("acked_at IS NULL"),
+        ),
+    )
+
+    post_id: Mapped[int] = mapped_column(ForeignKey("post.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), primary_key=True)
+    # 직접 멘션이면 비어 있고, @소속으로 펼쳐졌으면 그 소속이다.
+    source_department_id: Mapped[int | None] = mapped_column(ForeignKey("department.id"))
+    acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Reaction(Base):

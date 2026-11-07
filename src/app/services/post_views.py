@@ -4,11 +4,12 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.markdown import plain_summary, render_markdown
-from app.models import Attachment, Channel, Post, Reaction, User
+from app.models import Attachment, Channel, MentionAck, Post, Reaction, User
+from app.services.approvals import ApprovalView, approval_views
 from app.services.permissions import (
     Authorizer,
     ChannelAccess,
@@ -41,6 +42,11 @@ class PostView:
     can_react: bool
     can_open_thread: bool
     can_pin: bool
+    ack_total: int = 0
+    ack_done: int = 0
+    pending_names: list[str] = field(default_factory=list)
+    can_ack: bool = False
+    approval: ApprovalView | None = None
 
     @property
     def is_reply(self) -> bool:
@@ -114,6 +120,22 @@ async def build_views(
         ).all()
     )
 
+    acks: dict[int, list[tuple[int, str, bool]]] = defaultdict(list)
+    rows = await session.execute(
+        select(MentionAck.post_id, MentionAck.user_id, User.name, MentionAck.acked_at)
+        .join(User, User.id == MentionAck.user_id)
+        .where(MentionAck.post_id.in_(ids))
+        .order_by(User.name)
+    )
+    for post_id, target_id, name, acked_at in rows:
+        acks[post_id].append((target_id, name, acked_at is not None))
+
+    approvals = (
+        await approval_views(session, ids, channel.id, user.id)
+        if channel.type == "approval" and parent is None
+        else {}
+    )
+
     is_manager = await authz.is_manager(channel)
     views = []
     for post in posts:
@@ -123,6 +145,9 @@ async def build_views(
         can_change = (
             can_write_reply(access, parent, user.id) if parent is not None else access.write
         )
+        # F-58: 상신하면 본문과 첨부를 고칠 수 없고 지울 수도 없다.
+        if post.id in approvals and not post.is_draft:
+            can_change = False
         views.append(
             PostView(
                 post=post,
@@ -140,6 +165,12 @@ async def build_views(
                 can_pin=(
                     parent is None and not deleted and channel.type != "approval" and is_manager
                 ),
+                ack_total=0 if deleted else len(acks[post.id]),
+                ack_done=sum(done for _, _, done in acks[post.id]),
+                pending_names=[name for _, name, done in acks[post.id] if not done],
+                can_ack=not deleted
+                and any(target == user.id and not done for target, _, done in acks[post.id]),
+                approval=approvals.get(post.id),
             )
         )
     return views
@@ -175,7 +206,11 @@ async def timeline_posts(
     before: int | None = None,
 ) -> tuple[list[Post], bool]:
     """쓰기만 있는 사람은 조회 단계에서 본인 글로 좁힌다. 오래된 순으로 돌려준다."""
-    query = select(Post).where(Post.channel_id == channel.id, Post.parent_post_id.is_(None))
+    query = select(Post).where(
+        Post.channel_id == channel.id,
+        Post.parent_post_id.is_(None),
+        or_(Post.is_draft.is_(False), Post.author_id == user_id),
+    )
     if not access.read:
         query = query.where(Post.author_id == user_id)
     if before is not None:

@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.models import (
+    Approval,
+    ApprovalLineTemplate,
+    ApprovalStep,
     Attachment,
     Channel,
     Department,
@@ -275,6 +278,49 @@ async def seed(session: AsyncSession) -> None:
     )
     await db.react(release, "👀", u["subin"], u["jia"])
     await db.post(channels["장애 공유"], u["subin"], "로그인 지연은 원인을 찾아 해결했습니다.", 3)
+
+    # 영업1팀은 자기 승인선을, 영업2팀은 상위 소속인 영업본부의 승인선을 쓴다.
+    expense = channels["지출결의"]
+    expense.approval_template_md = "## 지출 내용\n\n- 금액:\n- 사유:\n"
+    for department, line in (
+        ("영업1팀", ["minjae", "junho"]),
+        ("영업본부", ["taehyun", "junho"]),
+    ):
+        for number, login in enumerate(line, start=1):
+            await db.add(
+                ApprovalLineTemplate(
+                    channel_id=expense.id,
+                    department_id=departments[department].id,
+                    step_no=number,
+                    approver_id=u[login].id,
+                )
+            )
+    booth = await db.post(
+        expense, u["haneul"], "## 지출 내용\n\n- 금액: 1,200,000원\n- 사유: 전시회 부스 임차", 2
+    )
+    draft = await db.add(
+        Approval(
+            post_id=booth.id,
+            drafter_id=u["haneul"].id,
+            department_id=departments["영업1팀"].id,
+            title="전시회 부스 비용",
+            status="in_progress",
+            current_step=1,
+            submitted_at=db.now - timedelta(hours=2),
+        )
+    )
+    await db.add(
+        ApprovalStep(
+            approval_id=draft.id,
+            step_no=0,
+            step_type="draft",
+            approver_id=u["haneul"].id,
+            status="approved",
+            acted_at=db.now - timedelta(hours=2),
+        )
+    )
+    await db.add(ApprovalStep(approval_id=draft.id, step_no=1, approver_id=u["minjae"].id))
+    await db.add(ApprovalStep(approval_id=draft.id, step_no=2, approver_id=u["junho"].id))
 
     record_audit(
         session,

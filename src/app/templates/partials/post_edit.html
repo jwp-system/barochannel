@@ -1,5 +1,7 @@
 <form id="post-{{ post.id }}" class="card stack" hx-post="/posts/{{ post.id }}/edit" hx-target="this" hx-swap="outerHTML">
-  <textarea name="body" rows="4" maxlength="50000" required>{{ post.body_md }}</textarea>
+  {% if approval %}<input name="title" value="{{ approval.title }}" required maxlength="200" aria-label="제목">{% endif %}
+  <textarea name="body" rows="4" maxlength="50000" required data-mentions="/channels/{{ post.channel_id }}/mention-candidates">{{ post.body_md }}</textarea>
+  {% if has_acks %}<label class="check"><input type="checkbox" name="reconfirm" value="true"> 확인한 사람에게 재확인 요청</label>{% endif %}
   <div class="composer-actions">
     <button type="button" hx-get="/posts/{{ post.id }}/card">취소</button>
     <button class="primary">저장</button>

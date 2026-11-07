@@ -1,4 +1,4 @@
-<textarea name="body" rows="2" maxlength="50000" placeholder="메시지를 입력해 주세요" aria-label="내용 (마크다운 지원)"></textarea>
+<textarea name="body" rows="2" maxlength="50000" placeholder="메시지를 입력해 주세요" aria-label="내용 (마크다운 지원)" data-mentions="/channels/{{ channel.id if channel is defined else root.post.channel_id }}/mention-candidates"></textarea>
 <div class="preview" hidden></div>
 <div class="composer-actions">
   <label class="file-button">파일 첨부<input type="file" name="files" multiple></label>

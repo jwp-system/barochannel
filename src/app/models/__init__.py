@@ -1,5 +1,12 @@
+from app.models.approval import (
+    Approval,
+    ApprovalLineTemplate,
+    ApprovalReview,
+    ApprovalStep,
+    Notification,
+)
 from app.models.audit import AuditLog
-from app.models.content import Attachment, Post, PostRevision, Reaction
+from app.models.content import Attachment, MentionAck, Post, PostRevision, Reaction
 from app.models.org import Department, User, UserDepartment
 from app.models.space import (
     CHANNEL_TYPES,
@@ -10,12 +17,18 @@ from app.models.space import (
 )
 
 __all__ = [
+    "Approval",
+    "ApprovalLineTemplate",
+    "ApprovalReview",
+    "ApprovalStep",
+    "Notification",
     "CHANNEL_TYPES",
     "Attachment",
     "AuditLog",
     "Channel",
     "Department",
     "GroupManager",
+    "MentionAck",
     "PermissionGrant",
     "Post",
     "PostRevision",

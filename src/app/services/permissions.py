@@ -10,6 +10,10 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    Approval,
+    ApprovalLineTemplate,
+    ApprovalReview,
+    ApprovalStep,
     Channel,
     Department,
     GroupManager,
@@ -87,6 +91,8 @@ def normalize_grant(values: dict[str, str | None]) -> dict[str, str | None]:
 
 
 def can_view_post(access: ChannelAccess, post: Post, user_id: int) -> bool:
+    if post.is_draft:
+        return post.author_id == user_id
     return access.read or (access.write and post.author_id == user_id)
 
 
@@ -109,6 +115,81 @@ def _layer(grant: PermissionGrant | None) -> Layer:
     }
 
 
+def _approvers_query(*conditions):
+    """F-54: 등록된 승인자와 진행 중인 결재의 승인자. 기안자 자신의 단계는 권한을 주지 않는다."""
+    registered = select(
+        ApprovalLineTemplate.channel_id.label("channel_id"),
+        ApprovalLineTemplate.approver_id.label("user_id"),
+    )
+    running = (
+        select(Post.channel_id.label("channel_id"), ApprovalStep.approver_id.label("user_id"))
+        .join(Approval, Approval.id == ApprovalStep.approval_id)
+        .join(Post, Post.id == Approval.post_id)
+        .where(
+            Approval.status == "in_progress",
+            ApprovalStep.step_type == "approve",
+            ApprovalStep.approver_id != Approval.drafter_id,
+        )
+    )
+    both = registered.union(running).subquery()
+    return select(both.c.channel_id, both.c.user_id).where(*[item(both) for item in conditions])
+
+
+async def access_for_users(
+    session: AsyncSession, channel: Channel, user_ids: Iterable[int]
+) -> dict[int, ChannelAccess]:
+    """여러 사람을 한 번에 판정한다. @소속이 수백 명으로 펼쳐져도 쿼리 수가 늘지 않는다."""
+    ids = set(user_ids)
+    if not ids or channel.group.archived_at is not None:
+        return dict.fromkeys(ids, NO_ACCESS)
+    parents = dict((await session.execute(select(Department.id, Department.parent_id))).all())
+    memberships = await session.execute(
+        select(UserDepartment.user_id, UserDepartment.department_id).where(
+            UserDepartment.user_id.in_(ids)
+        )
+    )
+    chains: dict[int, list[list[int]]] = {user_id: [] for user_id in ids}
+    for user_id, department_id in memberships:
+        chains[user_id].append(Authorizer._ancestors(department_id, parents))
+    grants = await session.scalars(
+        select(PermissionGrant).where(
+            or_(
+                and_(
+                    PermissionGrant.scope_type == "channel", PermissionGrant.scope_id == channel.id
+                ),
+                and_(
+                    PermissionGrant.scope_type == "group",
+                    PermissionGrant.scope_id == channel.group_id,
+                ),
+            )
+        )
+    )
+    found = {(grant.scope_type, grant.subject_type, grant.subject_id): grant for grant in grants}
+
+    def layers(subject_type: str, subject_id: int) -> list[Layer]:
+        return [
+            _layer(found.get(("channel", subject_type, subject_id))),
+            _layer(found.get(("group", subject_type, subject_id))),
+        ]
+
+    approvers = set(
+        (await session.execute(_approvers_query(lambda both: both.c.channel_id == channel.id)))
+        .scalars(1)
+        .all()
+    )
+    return {
+        user_id: decide_access(
+            is_approver=user_id in approvers,
+            user_layers=layers("user", user_id),
+            department_chains=[
+                [layer for department_id in chain for layer in layers("department", department_id)]
+                for chain in chains[user_id]
+            ],
+        )
+        for user_id in ids
+    }
+
+
 class Authorizer:
     """한 요청 안에서 판정 재료를 한 번만 읽어 재사용한다."""
 
@@ -119,6 +200,8 @@ class Authorizer:
         self._grants: dict[tuple[str, int, str, int], PermissionGrant] = {}
         self._chains: list[list[int]] = []
         self._managed: set[int] = set()
+        self._approver_channels: set[int] = set()
+        self._document_posts: set[int] = set()
 
     async def _load(self) -> None:
         if self._loaded:
@@ -154,6 +237,23 @@ class Authorizer:
                 select(GroupManager.group_id).where(GroupManager.user_id == self.user.id)
             )
         )
+        rows = await self.session.execute(
+            _approvers_query(lambda both: both.c.user_id == self.user.id)
+        )
+        self._approver_channels = {channel_id for channel_id, _ in rows}
+        # 검토자와 지나간 승인자는 채널이 아니라 그 문서에만 권한이 있다.
+        self._document_posts = set(
+            await self.session.scalars(
+                select(Approval.post_id)
+                .join(ApprovalReview, ApprovalReview.approval_id == Approval.id)
+                .where(ApprovalReview.reviewer_id == self.user.id)
+                .union(
+                    select(Approval.post_id)
+                    .join(ApprovalStep, ApprovalStep.approval_id == Approval.id)
+                    .where(ApprovalStep.approver_id == self.user.id)
+                )
+            )
+        )
         self._loaded = True
 
     @staticmethod
@@ -172,8 +272,7 @@ class Authorizer:
         ]
 
     def _is_approver(self, channel: Channel) -> bool:
-        # 2단계에서 approval_line_template 조회로 바꾼다. 판정 규칙은 decide_access에 이미 있다.
-        return False
+        return channel.id in self._approver_channels
 
     async def access(self, channel: Channel) -> ChannelAccess:
         if channel.group.archived_at is not None:
@@ -191,6 +290,14 @@ class Authorizer:
                 for chain in self._chains
             ],
         )
+
+    async def post_access(self, channel: Channel, post: Post, parent: Post | None) -> ChannelAccess:
+        """글 하나에 대한 권한. 맡은 결재 문서는 채널 권한이 없어도 읽고 답글을 쓴다."""
+        access = await self.access(channel)
+        root = parent.id if parent else post.id
+        if root in self._document_posts and channel.group.archived_at is None:
+            return ChannelAccess(True, access.write, True, True)
+        return access
 
     async def managed_group_ids(self) -> set[int]:
         await self._load()

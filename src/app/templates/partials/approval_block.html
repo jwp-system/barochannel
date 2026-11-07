@@ -1,0 +1,48 @@
+{% set a = v.approval %}
+<div class="approval">
+  {% if a.approval.reference_post_id %}<p class="muted">참조 문서: <a href="/approvals/{{ a.approval.reference_post_id }}">열기</a></p>{% endif %}
+  {% if a.steps %}
+  <ol class="steps">
+    {% for s in a.steps %}
+    <li class="step {{ s.status }}{% if s.is_current %} current{% endif %}">
+      <b>{{ s.label }}</b> {{ s.name }}
+      {% if s.status == "approved" %}<span class="muted">{{ s.acted_at|time }}</span>{% elif s.status == "rejected" %}<span class="muted">반려 {{ s.acted_at|time }}</span>{% elif s.is_current %}<span class="muted">차례</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% for s in a.steps %}{% if s.comment %}<p class="reject-reason">반려 사유: {{ s.comment }}</p>{% endif %}{% endfor %}
+  {% endif %}
+  {% if a.approval.discard_reason %}<p class="reject-reason">폐기 사유: {{ a.approval.discard_reason }}</p>{% endif %}
+  {% if a.reviews %}
+  <ul class="reviews">
+    {% for r in a.reviews %}<li class="tag{% if r.result %} blue{% endif %}">검토 {{ r.name }}: {{ r.label }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if a.can_submit %}
+    <p class="muted">적용될 승인선: {{ a.preview|join(" → ") }}</p>
+  {% endif %}
+  <div class="approval-actions">
+    {% if a.can_approve %}<button class="primary" hx-post="/approvals/{{ v.post.id }}/approve">승인</button>{% endif %}
+    {% if a.waiting_review %}<button class="primary" disabled>승인 (검토 대기 중)</button>{% endif %}
+    {% if a.can_cancel %}<button hx-post="/approvals/{{ v.post.id }}/cancel" hx-confirm="내 승인을 취소할까요?">승인 취소</button>{% endif %}
+    {% if a.can_withdraw %}<button hx-post="/approvals/{{ v.post.id }}/withdraw" hx-confirm="기안을 취소할까요? 되돌릴 수 없습니다.">기안 취소</button>{% endif %}
+    {% if a.can_resubmit %}<a class="button" href="/channels/{{ v.post.channel_id }}/approvals/new?reference={{ v.post.id }}">참조 상신</a>{% endif %}
+    {% if a.can_submit or a.can_publish %}<a class="button" href="/approvals/{{ v.post.id }}">{{ "상신하러 가기" if a.can_submit else "소통 채널에 게시" }}</a>{% endif %}
+  </div>
+  {% if a.can_review %}
+  <div class="approval-actions">
+    {% for key, label in [("pass", "적격"), ("revise", "보완필"), ("fail", "부적격")] %}
+    <button hx-post="/approvals/{{ v.post.id }}/review" hx-vals='{{ {"result": key}|tojson }}'>{{ label }}</button>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if a.can_reject %}
+  <details class="approval-form">
+    <summary>반려</summary>
+    <form class="stack" hx-post="/approvals/{{ v.post.id }}/reject">
+      <textarea name="comment" rows="2" maxlength="1000" required placeholder="반려 사유" aria-label="반려 사유"></textarea>
+      <button class="danger">반려</button>
+    </form>
+  </details>
+  {% endif %}
+</div>

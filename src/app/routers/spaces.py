@@ -18,6 +18,7 @@ from app.models import (
     WorkspaceGroup,
 )
 from app.routers.org import tree_rows
+from app.services.approvals import line_rows, stalled_documents
 from app.services.audit import record_audit
 from app.services.permissions import PERMISSIONS, normalize_grant
 
@@ -169,6 +170,10 @@ async def channel_settings(
     request: Request, channel_id: int, session: SessionDep, user: CurrentUser
 ) -> HTMLResponse:
     channel = await managed_channel(session, channel_id, user)
+    talk_channels = await session.scalars(
+        select(Channel).where(Channel.type == "talk").order_by(Channel.name)
+    )
+    lines = await line_rows(session, channel.id)
     return templates.TemplateResponse(
         request,
         "channel_settings.html",
@@ -176,6 +181,10 @@ async def channel_settings(
             "user": user,
             "active_tab": "more",
             "channel": channel,
+            "lines": lines,
+            "line_data": {str(row.department_id): row.approvers for row in lines},
+            "stalled": await stalled_documents(session, Channel.id == channel.id),
+            "talk_channels": list(talk_channels),
             **await grant_context(session, "channel", channel.id),
         },
     )

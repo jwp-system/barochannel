@@ -7,6 +7,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -47,6 +48,8 @@ class Channel(Base):
     name: Mapped[str] = mapped_column(String(100))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     pin_limit: Mapped[int] = mapped_column(Integer, default=5)
+    approval_template_md: Mapped[str | None] = mapped_column(Text)
+    default_publish_channel_id: Mapped[int | None] = mapped_column(ForeignKey("channel.id"))
 
     group: Mapped[WorkspaceGroup] = relationship(lazy="joined")
 

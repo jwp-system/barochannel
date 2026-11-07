@@ -43,6 +43,8 @@
           hx-target="#timeline" hx-swap="beforeend">
       {% include "partials/composer_fields.html" %}
     </form>
+    {% elif access.write and channel.type == "approval" %}
+    <p class="notice"><a class="button primary" href="/channels/{{ channel.id }}/approvals/new">새 결재</a></p>
     {% elif access.write and channel.type != "talk" %}
     <p class="notice">{{ CHANNEL_TYPES[channel.type] }} 채널의 글쓰기는 다음 개발 단계에서 열립니다.</p>
     {% elif not access.write %}

@@ -10,5 +10,63 @@
   <label>글 고정 개수 <input type="number" name="pin_limit" value="{{ channel.pin_limit }}" min="0" max="50" required></label>
   <button class="primary">저장</button>
 </form>
+{% if channel.type == "approval" %}
+{% if stalled %}
+<section class="section stack">
+  <h2>멈춘 결재 <span class="muted">{{ stalled|length }}건</span></h2>
+  <p class="muted">승인자가 비활성이라 진행할 수 없는 결재입니다. 폐기하면 되돌릴 수 없고 문서는 보존됩니다. 기안자는 참조 상신으로 다시 올릴 수 있습니다.</p>
+  {% for row in stalled %}
+  <form class="stack" hx-post="/approvals/{{ row.post_id }}/discard" hx-confirm="이 결재를 폐기할까요? 되돌릴 수 없습니다.">
+    <strong>{{ row.title }}</strong>
+    <span class="muted">기안 {{ row.drafter_name }} · 비활성 승인자 {{ row.blocked_names|join(", ") }}</span>
+    <input name="reason" required maxlength="1000" placeholder="폐기 사유" aria-label="{{ row.title }} 폐기 사유">
+    <button class="danger">폐기</button>
+  </form>
+  {% endfor %}
+</section>
+{% endif %}
+<section class="section stack">
+  <h2>승인선</h2>
+  <p class="muted">소속별로 등록합니다. 소속에 승인선이 없으면 상위 소속을 따르고, 끝까지 없으면 기안자가 최종 승인합니다.</p>
+  {% if lines %}
+  <ul class="list">
+    {% for row in lines %}
+    <li class="row">
+      <strong>{{ row.department_name }}</strong>
+      <span>{{ row.summary }}</span>
+      <span class="spacer"></span>
+      <button type="button" class="link js-edit-line" data-department="{{ row.department_id }}">수정</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form class="stack line-picker" hx-post="/channels/{{ channel.id }}/approval-lines"
+        data-lines='{{ line_data|tojson }}' data-candidates="/channels/{{ channel.id }}/approver-candidates">
+    <label>소속
+      <select name="department_id" required>
+        {% for department, depth in tree %}<option value="{{ department.id }}">{{ "　" * depth }}{{ department.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <ol class="line-steps"></ol>
+    <p class="muted line-empty">아직 승인자가 없습니다. 모두 뺀 채로 저장하면 이 소속의 승인선이 삭제됩니다.</p>
+    <div class="line-search">
+      <input type="search" autocomplete="off" placeholder="이름, 이메일, 소속으로 승인자 추가" aria-label="승인자 검색">
+    </div>
+    <input type="hidden" name="approvers">
+    <button class="primary">승인선 저장</button>
+  </form>
+</section>
+<form class="section stack" hx-post="/channels/{{ channel.id }}/approval-settings">
+  <h2>기본 형식과 게시</h2>
+  <label>기본 형식 (마크다운)<textarea name="template" rows="6" maxlength="50000">{{ channel.approval_template_md or "" }}</textarea></label>
+  <label>기본 게시 채널
+    <select name="default_publish_channel_id">
+      <option value="">지정 안 함</option>
+      {% for row in talk_channels %}<option value="{{ row.id }}"{% if row.id == channel.default_publish_channel_id %} selected{% endif %}>{{ row.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <button class="primary">저장</button>
+</form>
+{% endif %}
 <section class="section">{% include "partials/grants.html" %}</section>
 {% endblock %}

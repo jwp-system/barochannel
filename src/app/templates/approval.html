@@ -1,0 +1,39 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}{{ v.approval.approval.title }} · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/channels/{{ channel.id }}">{{ icon("back") }}{{ channel.name }}</a>
+{% include "partials/post_card.html" %}
+{% if v.approval.can_submit %}
+<form class="section stack reviewer-picker" hx-post="/approvals/{{ v.post.id }}/submit" hx-swap="none"
+      hx-on::after-request="if (event.detail.successful) location.reload()"
+      data-candidates="/approvals/{{ v.post.id }}/reviewer-candidates">
+  <h2>상신</h2>
+  <p class="muted">검토자는 선택입니다. 검토자가 있으면 검토가 끝나야 최종 승인할 수 있습니다.</p>
+  <ul class="line-steps"></ul>
+  <div class="line-search">
+    <input type="search" autocomplete="off" placeholder="이름, 이메일, 소속으로 검토자 추가" aria-label="검토자 검색">
+  </div>
+  <div class="reviewer-inputs"></div>
+  <button class="primary">기안 승인 (상신)</button>
+</form>
+{% endif %}
+{% if v.approval.can_publish %}
+<form class="section stack" hx-post="/approvals/{{ v.post.id }}/publish">
+  <h2>소통 채널에 게시</h2>
+  {% if publish_targets %}
+  <label>채널
+    <select name="channel_id">
+      {% for row in publish_targets %}<option value="{{ row.id }}"{% if row.id == default_target %} selected{% endif %}>{{ row.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="check"><input type="checkbox" name="include_attachments" value="true"> 첨부 포함</label>
+  <button class="primary">게시</button>
+  {% else %}
+  <p class="muted">쓰기 권한이 있는 소통 채널이 없습니다.</p>
+  {% endif %}
+</form>
+{% endif %}
+{% if v.approval.approval.published_post_id %}<p class="muted">소통 채널에 게시했습니다.</p>{% endif %}
+{% if show_thread %}<section class="section" id="thread" hx-get="/posts/{{ v.post.id }}/thread" hx-trigger="load" hx-swap="innerHTML"></section>{% endif %}
+{% endblock %}

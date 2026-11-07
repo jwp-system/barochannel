@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEV_SECRET_KEY = "dev-only-secret-key"
@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     s3_bucket: str = "barochannel"
     s3_region: str = "us-east-1"
     signed_url_seconds: int = 60
+
+    # 기안자가 상신 후 기안을 취소할 수 있는 시간.
+    withdraw_hours: int = Field(default=24, gt=0)
 
     max_upload_mb: int = 20
     max_files_per_post: int = 10

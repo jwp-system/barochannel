@@ -76,6 +76,17 @@ async def put_file(key: str, stream: BinaryIO, content_type: str) -> None:
     )
 
 
+async def copy_file(source_key: str, target_key: str) -> None:
+    bucket = get_settings().s3_bucket
+    await to_thread.run_sync(
+        lambda: _client().copy_object(
+            Bucket=bucket,
+            Key=target_key,
+            CopySource={"Bucket": bucket, "Key": source_key},
+        )
+    )
+
+
 def signed_download_url(key: str, file_name: str, mime: str, *, inline: bool) -> str:
     settings = get_settings()
     disposition = "inline" if inline else "attachment"

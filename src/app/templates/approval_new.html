@@ -1,0 +1,23 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}새 결재 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/channels/{{ channel.id }}">{{ icon("back") }}{{ channel.name }}</a>
+<h1>새 결재</h1>
+<form class="section stack" hx-post="/channels/{{ channel.id }}/approvals" hx-encoding="multipart/form-data">
+  {% if reference %}<input type="hidden" name="reference_post_id" value="{{ reference }}"><p class="muted">참조 문서의 본문과 첨부를 불러옵니다.</p>{% endif %}
+  <label>제목 <input name="title" required maxlength="200" value="{{ title_text }}"></label>
+  {% if departments %}
+  <label>기안 소속
+    <select name="department_id">
+      {% for row in departments %}<option value="{{ row.id }}">{{ row.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <p class="muted">이 소속의 승인선을 적용합니다. 없으면 상위 소속의 승인선을 따릅니다.</p>
+  {% endif %}
+  <label>본문 <textarea name="body" rows="12" maxlength="50000">{{ body }}</textarea></label>
+  <label class="file-button">파일 첨부<input type="file" name="files" multiple></label>
+  <span class="file-names"></span>
+  <button class="primary">임시저장</button>
+</form>
+{% endblock %}

@@ -2,5 +2,75 @@
 {% block title %}내 할 일 · 바로채널{% endblock %}
 {% block content %}
 <h1>내 할 일</h1>
-<div class="empty"><h1>아직 할 일이 없어요</h1><p>읽음 확인과 결재는 다음 개발 단계에서 열립니다.</p></div>
+{% macro rows(title, list, empty) %}
+<section class="section">
+  <h2>{{ title }} <span class="muted">{{ list|length }}건</span></h2>
+  {% if list %}
+  <ul class="list">
+    {% for row in list %}
+    <li class="row">
+      <a class="list-link" href="/approvals/{{ row.post_id }}">{{ row.title }}</a>
+      <span class="tag">{{ row.status_label }}</span>
+      <span class="spacer"></span>
+      <span class="muted">{{ row.channel_name }} · {{ row.drafter_name }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">{{ empty }}</p>{% endif %}
+</section>
+{% endmacro %}
+{% if stalled %}
+<section class="section">
+  <h2>멈춘 결재 <span class="muted">{{ stalled|length }}건</span></h2>
+  <ul class="list">
+    {% for row in stalled %}
+    <li class="row">
+      <a class="list-link" href="/channels/{{ row.channel_id }}/settings">{{ row.title }}</a>
+      <span class="spacer"></span>
+      <span class="muted">{{ row.channel_name }} · 비활성 {{ row.blocked_names|join(", ") }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{{ rows("처리할 결재", turns, "처리할 결재가 없어요.") }}
+{{ rows("검토할 결재", reviews, "검토할 결재가 없어요.") }}
+{% if notices %}
+<section class="section">
+  <h2>결재 결과 <span class="muted">{{ notices|length }}건</span></h2>
+  <ul class="list">
+    {% for notice in notices %}
+    <li class="row">
+      <a class="list-link" href="/approvals/{{ notice.post_id }}">{{ notice.title }}</a>
+      <span class="tag blue">{{ notice.status_label }}</span>
+      <span class="spacer"></span>
+      <button hx-post="/notifications/{{ notice.id }}/read" hx-target="closest li" hx-swap="delete">확인</button>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+<section class="section">
+  <h2>읽음 확인 <span class="muted">{{ items|length }}건</span></h2>
+  {% for channel, v in items %}
+  <article class="card" id="todo-{{ v.post.id }}">
+    <header>
+      <a href="/channels/{{ channel.id }}"># {{ channel.name }}</a>
+      <strong>{{ v.author_name }}</strong>
+      <time>{{ v.post.created_at|time }}</time>
+      {% if v.post.edited_at %}<span class="muted">수정됨</span>{% endif %}
+      {% if v.is_reply %}<span class="tag">답글</span>{% endif %}
+    </header>
+    <div class="body">{{ v.body_html|safe }}</div>
+    {% include "partials/attachment_list.html" %}
+    <footer>
+      <button class="primary" hx-post="/posts/{{ v.post.id }}/ack" hx-target="closest article" hx-swap="delete">읽음 확인</button>
+    </footer>
+  </article>
+  {% else %}
+  <p class="muted">확인할 글이 없어요.</p>
+  {% endfor %}
+</section>
+{{ rows("내가 올린 결재", drafts, "올린 결재가 없어요.") }}
+{{ rows("내가 처리한 결재", handled, "처리한 결재가 없어요.") }}
 {% endblock %}

@@ -3,6 +3,8 @@
 from app.core.db import SessionLocal
 from app.core.templating import render_text
 from app.models import Channel, Post, User
+from app.services.approvals import my_reviews, my_turn, stalled_in_groups, unread_notices
+from app.services.mentions import pending_acks
 from app.services.permissions import Authorizer, can_view_replies
 from app.services.post_views import build_views, can_view_any, pinned_views
 from app.services.realtime import Event
@@ -17,6 +19,21 @@ async def still_allowed(user_id: int, channel_id: int) -> bool:
         if user is None or not user.is_active or channel is None:
             return False
         return (await Authorizer(session, user).access(channel)).can_enter
+
+
+async def todo_count(user_id: int) -> int | None:
+    """None이면 수신 자격을 잃은 것이므로 연결을 끊는다."""
+    async with SessionLocal() as session:
+        user = await session.get(User, user_id)
+        if user is None or not user.is_active:
+            return None
+        authz = Authorizer(session, user)
+        acks = await pending_acks(session, authz)
+        stalled = await stalled_in_groups(session, await authz.managed_group_ids())
+        turns = await my_turn(session, user_id)
+        reviews = await my_reviews(session, user_id)
+        notices = await unread_notices(session, user_id)
+        return len(acks) + len(turns) + len(reviews) + len(notices) + len(stalled)
 
 
 async def messages_for(event: Event, user_id: int) -> list[Message] | None:

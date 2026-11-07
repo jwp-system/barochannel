@@ -6,6 +6,15 @@ from app.core.db import SessionDep
 from app.core.deps import AuthzDep
 from app.core.templating import templates
 from app.models import Channel, Department, UserDepartment
+from app.services.approvals import (
+    my_drafts,
+    my_handled,
+    my_reviews,
+    my_turn,
+    stalled_in_groups,
+    unread_notices,
+)
+from app.services.mentions import pending_acks
 from app.services.navigation import build_navigation
 from app.services.post_views import build_views, pinned_views, timeline_posts
 
@@ -27,7 +36,13 @@ async def home(request: Request, authz: AuthzDep) -> HTMLResponse:
 
 
 @router.get("/todo", response_class=HTMLResponse)
-async def todo(request: Request, authz: AuthzDep) -> HTMLResponse:
+async def todo(request: Request, session: SessionDep, authz: AuthzDep) -> HTMLResponse:
+    items = []
+    for item in await pending_acks(session, authz):
+        (view,) = await build_views(
+            session, [item.post], authz, item.channel, item.access, item.parent
+        )
+        items.append((item.channel, view))
     return templates.TemplateResponse(
         request,
         "todo.html",
@@ -36,6 +51,13 @@ async def todo(request: Request, authz: AuthzDep) -> HTMLResponse:
             "navigation": await build_navigation(authz),
             "active_tab": "todo",
             "root_tab": True,
+            "items": items,
+            "stalled": await stalled_in_groups(session, await authz.managed_group_ids()),
+            "turns": await my_turn(session, authz.user.id),
+            "reviews": await my_reviews(session, authz.user.id),
+            "notices": await unread_notices(session, authz.user.id),
+            "drafts": await my_drafts(session, authz.user.id),
+            "handled": await my_handled(session, authz.user.id),
         },
     )
 

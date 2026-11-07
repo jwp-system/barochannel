@@ -244,3 +244,54 @@ form.card textarea { min-height: 96px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* 멘션과 읽음 확인 */
+.composer, form.card { position: relative; }
+.mention-menu { background: var(--surface); border-radius: var(--radius-sm); bottom: 100%; box-shadow: 0 4px 16px rgba(0, 27, 55, .16); left: 12px; margin-bottom: 4px; max-height: 240px; max-width: calc(100% - 24px); min-width: 220px; overflow-y: auto; padding: 4px; position: absolute; z-index: 20; }
+.mention-menu button { background: none; border-radius: 8px; display: block; font-size: 14px; min-height: 36px; padding: 4px 10px; text-align: left; width: 100%; }
+.mention-menu button.on, .mention-menu button:hover:not(:disabled) { background: var(--fill); }
+.mention-menu button:disabled { color: var(--text-3); }
+.mention-menu small { color: var(--text-3); margin-left: 6px; }
+.ack-status { font-size: 14px; margin-top: 10px; }
+.ack-status summary { color: var(--text-2); cursor: pointer; font-weight: 600; }
+.ack-status p { margin: 4px 0 0; }
+.ack-button { margin-top: 10px; }
+.check { align-items: center; color: var(--text-2); display: flex; font-size: 14px; gap: 6px; }
+.tab { position: relative; }
+.todo-count { background: var(--danger); border-radius: 999px; color: #fff; font-size: 11px; font-weight: 700; line-height: 16px; min-width: 16px; padding: 0 4px; position: absolute; right: 6px; text-align: center; top: 2px; }
+
+/* 결재 */
+.approval-title { font-size: 17px; margin: 6px 0 0; }
+.approval-title a { color: var(--text); }
+.approval { margin-top: 12px; }
+.steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.step { background: var(--fill); border-radius: 10px; font-size: 13px; padding: 4px 10px; }
+.step.approved { background: var(--accent-soft); color: var(--accent-soft-text); }
+.step.rejected { color: var(--danger); }
+.step.current { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.reviews { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 8px 0 0; padding: 0; }
+.reject-reason { color: var(--danger); font-size: 14px; margin: 8px 0 0; }
+.approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.approval-actions:empty { display: none; }
+.approval-form { font-size: 14px; margin-top: 8px; }
+.approval-form summary { color: var(--text-2); cursor: pointer; font-weight: 600; }
+.approval-form form { margin-top: 6px; }
+a.button { background: var(--fill); border-radius: var(--radius-sm); color: var(--text); display: inline-block; font-weight: 600; padding: 8px 14px; text-decoration: none; }
+a.button.primary { background: var(--accent); color: var(--on-accent); }
+button.danger { background: var(--danger); color: #fff; }
+.step .muted { font-size: 12px; margin-left: 2px; }
+.card .approval-title { padding: 0; }
+
+/* 승인선 편집 */
+.line-steps { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.line-steps:empty { display: none; }
+.line-steps li { align-items: center; background: var(--fill); border-radius: var(--radius-sm); display: flex; flex-wrap: wrap; font-size: 14px; gap: 8px; padding: 6px 8px 6px 12px; }
+.line-steps b { color: var(--accent-soft-text); min-width: 32px; }
+.line-steps small { color: var(--text-3); overflow-wrap: anywhere; }
+.line-steps button { background: var(--surface); border-radius: 8px; font-size: 13px; min-height: 30px; min-width: 32px; padding: 0 8px; }
+.line-steps button:disabled { opacity: .35; }
+.line-search { position: relative; }
+.line-search input { width: 100%; }
+.line-search .mention-menu { bottom: auto; left: 0; margin: 4px 0 0; max-width: 100%; right: 0; top: 100%; }
+.line-empty[hidden] { display: none; }
+

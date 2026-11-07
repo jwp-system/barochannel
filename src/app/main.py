@@ -18,6 +18,7 @@ from app.core.sessions import ClockTolerantSessionMiddleware
 from app.core.templating import APP_DIR
 from app.routers import (
     admin_groups,
+    approvals,
     attachments,
     auth,
     events,
@@ -101,7 +102,18 @@ def create_app() -> FastAPI:
     application.add_exception_handler(AdminPinRequired, admin_pin_required)
     application.add_exception_handler(PinChangeRequired, pin_change_required)
     application.mount("/static", CachedStaticFiles(directory=APP_DIR / "static"), name="static")
-    for module in (health, auth, pages, org, admin_groups, spaces, posts, attachments, events):
+    for module in (
+        health,
+        auth,
+        pages,
+        org,
+        admin_groups,
+        spaces,
+        posts,
+        approvals,
+        attachments,
+        events,
+    ):
         application.include_router(module.router)
     return application
 

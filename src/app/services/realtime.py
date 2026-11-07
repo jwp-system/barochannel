@@ -6,6 +6,8 @@ NOTIFY에는 번호만 싣고 본문은 싣지 않는다. 내용은 연결마다
 import asyncio
 import json
 import logging
+from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 
 import asyncpg
@@ -17,6 +19,8 @@ from app.core.config import get_settings
 NOTIFY_CHANNEL = "baro_events"
 QUEUE_SIZE = 100
 RECONNECT_SECONDS = 3
+# NOTIFY 내용은 8000바이트를 넘을 수 없다.
+COUNT_CHUNK = 500
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +38,18 @@ async def publish(session: AsyncSession, event: Event) -> None:
     await session.execute(select(func.pg_notify(NOTIFY_CHANNEL, json.dumps(asdict(event)))))
 
 
+async def publish_counts(session: AsyncSession, user_ids: Iterable[int]) -> None:
+    """개수가 바뀐 사람을 알린다. 개수는 받는 쪽이 다시 센다."""
+    ids = sorted(user_ids)
+    for start in range(0, len(ids), COUNT_CHUNK):
+        payload = json.dumps({"user_ids": ids[start : start + COUNT_CHUNK]})
+        await session.execute(select(func.pg_notify(NOTIFY_CHANNEL, payload)))
+
+
 class Hub:
     def __init__(self) -> None:
         self._subscribers: dict[int, set[asyncio.Queue[Event | None]]] = {}
+        self._user_subscribers: dict[int, set[asyncio.Queue[bool | None]]] = {}
         self._task: asyncio.Task[None] | None = None
 
     def subscribe(self, channel_id: int) -> asyncio.Queue[Event | None]:
@@ -51,6 +64,25 @@ class Hub:
             if not subscribers:
                 del self._subscribers[channel_id]
 
+    def subscribe_user(self, user_id: int) -> asyncio.Queue[bool | None]:
+        # 신호는 쌓을 필요가 없다. 한 칸이면 다음에 한 번 다시 세는 것으로 충분하다.
+        queue: asyncio.Queue[bool | None] = asyncio.Queue(1)
+        self._user_subscribers.setdefault(user_id, set()).add(queue)
+        return queue
+
+    def unsubscribe_user(self, user_id: int, queue: asyncio.Queue[bool | None]) -> None:
+        subscribers = self._user_subscribers.get(user_id)
+        if subscribers is not None:
+            subscribers.discard(queue)
+            if not subscribers:
+                del self._user_subscribers[user_id]
+
+    def dispatch_counts(self, user_ids: Iterable[int]) -> None:
+        for user_id in user_ids:
+            for queue in list(self._user_subscribers.get(user_id, ())):
+                with suppress(asyncio.QueueFull):
+                    queue.put_nowait(True)
+
     def dispatch(self, event: Event) -> None:
         for queue in list(self._subscribers.get(event.channel_id, ())):
             try:
@@ -62,7 +94,11 @@ class Hub:
                 queue.put_nowait(None)
 
     def _on_notify(self, _connection: object, _pid: int, _channel: str, payload: str) -> None:
-        self.dispatch(Event(**json.loads(payload)))
+        data = json.loads(payload)
+        if "user_ids" in data:
+            self.dispatch_counts(data["user_ids"])
+        else:
+            self.dispatch(Event(**data))
 
     async def _listen(self) -> None:
         dsn = get_settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
@@ -87,6 +123,11 @@ class Hub:
         for queues in self._subscribers.values():
             for queue in queues:
                 queue.put_nowait(None)
+        for user_queues in self._user_subscribers.values():
+            for user_queue in user_queues:
+                with suppress(asyncio.QueueEmpty):
+                    user_queue.get_nowait()
+                user_queue.put_nowait(None)
         if self._task is not None:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)

@@ -14,7 +14,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import HTMLResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,21 +23,34 @@ from app.core.db import SessionDep
 from app.core.deps import AuthzDep, current_user
 from app.core.markdown import render_markdown
 from app.core.templating import fragment
-from app.models import Attachment, Channel, Post, PostRevision, Reaction
+from app.models import (
+    Approval,
+    Attachment,
+    Channel,
+    Department,
+    MentionAck,
+    Post,
+    PostRevision,
+    Reaction,
+    User,
+)
 from app.services.audit import record_audit
+from app.services.mentions import MentionError, sync_mentions
 from app.services.permissions import (
     Authorizer,
     ChannelAccess,
+    access_for_users,
     can_view_replies,
     can_write_reply,
 )
 from app.services.post_views import EMOJIS, build_views, can_view_any, pinned_views, timeline_posts
-from app.services.realtime import Event, publish
+from app.services.realtime import Event, publish, publish_counts
 from app.services.storage import mime_for, put_file
 
 router = APIRouter(tags=["posts"], include_in_schema=False, dependencies=[Depends(current_user)])
 
 MAX_BODY_LENGTH = 50_000
+MENTION_CANDIDATES = 8
 Files = Annotated[list[UploadFile] | None, File()]
 Body = Annotated[str, Form(max_length=MAX_BODY_LENGTH)]
 
@@ -64,8 +77,8 @@ async def post_context(
     if post is None:
         raise not_found()
     channel = await session.get(Channel, post.channel_id)
-    access = await authz.access(channel) if channel else None
     parent = await session.get(Post, post.parent_post_id) if post.parent_post_id else None
+    access = await authz.post_access(channel, post, parent) if channel else None
     if channel is None or access is None or not can_view_any(access, post, parent, authz.user.id):
         raise not_found()
     return post, parent, channel, access
@@ -108,6 +121,19 @@ async def store_attachments(session: AsyncSession, post: Post, files: list[Uploa
                 post_id=post.id, file_name=name, storage_key=key, size=file.size or 0, mime=mime
             )
         )
+
+
+async def apply_mentions(
+    session: AsyncSession, post: Post, parent: Post | None, channel: Channel
+) -> None:
+    if post.is_draft:
+        # 임시저장은 대상자가 볼 수 없다. 상신할 때 멘션을 처리한다.
+        return
+    try:
+        changed = await sync_mentions(session, post, parent, channel)
+    except MentionError as error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
+    await publish_counts(session, changed)
 
 
 def require_content(body: str, files: list[UploadFile]) -> None:
@@ -165,6 +191,7 @@ async def create_post(
     post = Post(channel_id=channel.id, author_id=authz.user.id, body_md=body)
     session.add(post)
     await session.flush()
+    await apply_mentions(session, post, None, channel)
     await store_attachments(session, post, files)
     await publish(session, Event("created", channel.id, post.id, authz.user.id))
     await session.commit()
@@ -211,6 +238,7 @@ async def create_reply(
     )
     session.add(reply)
     await session.flush()
+    await apply_mentions(session, reply, post, channel)
     await store_attachments(session, reply, files)
     await publish(session, Event("created", channel.id, reply.id, authz.user.id))
     await session.commit()
@@ -237,16 +265,31 @@ async def editable_view(
 @router.get("/posts/{post_id}/edit", response_class=HTMLResponse)
 async def edit_form(post_id: int, session: SessionDep, authz: AuthzDep) -> HTMLResponse:
     post, *_ = await editable_view(session, authz, post_id)
-    return fragment("partials/post_edit.html", post=post)
+    has_acks = await session.scalar(
+        select(func.count()).select_from(MentionAck).where(MentionAck.post_id == post.id)
+    )
+    approval = await session.scalar(select(Approval).where(Approval.post_id == post.id))
+    return fragment(
+        "partials/post_edit.html", post=post, has_acks=bool(has_acks), approval=approval
+    )
 
 
 @router.post("/posts/{post_id}/edit", response_class=HTMLResponse)
 async def update_post(
-    post_id: int, session: SessionDep, authz: AuthzDep, body: Body
+    post_id: int,
+    session: SessionDep,
+    authz: AuthzDep,
+    body: Body,
+    reconfirm: Annotated[bool, Form()] = False,
+    title: Annotated[str, Form(max_length=200)] = "",
 ) -> HTMLResponse:
     post, parent, channel, access = await editable_view(session, authz, post_id, lock=True)
     if not body.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "내용을 입력해 주세요.")
+    if title.strip():
+        approval = await session.scalar(select(Approval).where(Approval.post_id == post.id))
+        if approval is not None:
+            approval.title = title.strip()
     if body != post.body_md:
         version = await session.scalar(
             select(func.coalesce(func.max(PostRevision.version), 0)).where(
@@ -263,9 +306,138 @@ async def update_post(
         )
         post.body_md = body
         post.edited_at = datetime.now(UTC)
+        await apply_mentions(session, post, parent, channel)
+        if reconfirm:
+            await request_reconfirm(session, post, authz.user.id)
         await publish(session, Event("updated", channel.id, post.id, authz.user.id))
-        await session.commit()
+    await session.commit()
     return await card(session, authz, post, parent, channel, access)
+
+
+async def request_reconfirm(session: AsyncSession, post: Post, actor_id: int) -> None:
+    """F-26: 작성자가 고른 경우에만 확인했던 사람을 다시 미확인으로 돌린다."""
+    reset = list(
+        await session.scalars(
+            update(MentionAck)
+            .where(MentionAck.post_id == post.id, MentionAck.acked_at.is_not(None))
+            .values(acked_at=None)
+            .returning(MentionAck.user_id)
+        )
+    )
+    if reset:
+        record_audit(
+            session,
+            actor_id=actor_id,
+            action="mention.reconfirm",
+            target_type="post",
+            target_id=post.id,
+            user_ids=sorted(reset),
+        )
+        await publish_counts(session, reset)
+
+
+@router.post("/posts/{post_id}/ack", response_class=HTMLResponse)
+async def acknowledge(post_id: int, session: SessionDep, authz: AuthzDep) -> HTMLResponse:
+    """누른 시각을 남기고 취소할 수 없다. 같은 글을 두 번 눌러도 처음 시각이 유지된다."""
+    post, parent, channel, access = await post_context(session, authz, post_id)
+    if post.deleted_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "삭제된 글입니다.")
+    target = await session.get(MentionAck, (post.id, authz.user.id))
+    if target is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "읽음 확인 대상이 아닙니다.")
+    acked = await session.scalar(
+        update(MentionAck)
+        .where(
+            MentionAck.post_id == post.id,
+            MentionAck.user_id == authz.user.id,
+            MentionAck.acked_at.is_(None),
+        )
+        .values(acked_at=datetime.now(UTC))
+        .returning(MentionAck.user_id)
+    )
+    if acked is not None:
+        record_audit(
+            session,
+            actor_id=authz.user.id,
+            action="mention.ack",
+            target_type="post",
+            target_id=post.id,
+            channel_id=channel.id,
+        )
+        await publish(session, Event("updated", channel.id, post.id, authz.user.id))
+        await publish_counts(session, [authz.user.id])
+    await session.commit()
+    return await card(session, authz, post, parent, channel, access)
+
+
+@router.get("/channels/{channel_id}/mention-candidates")
+async def mention_candidates(
+    channel_id: int,
+    session: SessionDep,
+    authz: AuthzDep,
+    q: Annotated[str, Query(max_length=100)] = "",
+) -> list[dict[str, object]]:
+    """F-20 자동완성. 읽기 권한이 없는 사람은 고를 수 없게 표시한다(F-25)."""
+    channel, _ = await channel_access(session, authz, channel_id)
+    users = list(
+        await session.scalars(
+            select(User)
+            .where(
+                User.status == "active",
+                User.id != authz.user.id,
+                User.name.contains(q, autoescape=True),
+            )
+            .order_by(User.name, User.id)
+            .limit(MENTION_CANDIDATES)
+        )
+    )
+    departments = list(
+        await session.scalars(
+            select(Department)
+            .where(Department.name.contains(q, autoescape=True))
+            .order_by(Department.name, Department.id)
+            .limit(MENTION_CANDIDATES)
+        )
+    )
+    names = [row.name for row in (*users, *departments)]
+    same_user_names = set(
+        await session.scalars(
+            select(User.name)
+            .where(User.status == "active", User.name.in_(names))
+            .group_by(User.name)
+            .having(func.count() > 1)
+        )
+    )
+    same_department_names = set(
+        await session.scalars(
+            select(Department.name)
+            .where(Department.name.in_(names))
+            .group_by(Department.name)
+            .having(func.count() > 1)
+        )
+    )
+    repeated = same_user_names | same_department_names
+    repeated |= {row.name for row in users} & {row.name for row in departments}
+
+    def insert_text(row: User | Department) -> str:
+        return f"{row.name}#{row.id}" if row.name in repeated else row.name
+
+    access = await access_for_users(session, channel, [row.id for row in users])
+    return [
+        *[
+            {
+                "label": row.name,
+                "detail": row.email,
+                "insert": insert_text(row),
+                "disabled": not access[row.id].read,
+            }
+            for row in users
+        ],
+        *[
+            {"label": row.name, "detail": "소속", "insert": insert_text(row), "disabled": False}
+            for row in departments
+        ],
+    ][:MENTION_CANDIDATES]
 
 
 @router.post("/posts/{post_id}/delete", response_class=HTMLResponse)
@@ -279,6 +451,12 @@ async def delete_post(post_id: int, session: SessionDep, authz: AuthzDep) -> HTM
     if live_replies:
         raise HTTPException(status.HTTP_409_CONFLICT, "답글이 남아 있어 삭제할 수 없습니다.")
     was_pinned = post.pinned_at is not None
+    pending = await session.scalars(
+        select(MentionAck.user_id).where(
+            MentionAck.post_id == post.id, MentionAck.acked_at.is_(None)
+        )
+    )
+    await publish_counts(session, list(pending))
     post.deleted_at = datetime.now(UTC)
     post.deleted_by = authz.user.id
     post.pinned_at = None

@@ -7,20 +7,19 @@
     <time>{{ v.post.created_at|time }}</time>
     {% if v.post.edited_at %}<span class="muted">수정됨</span>{% endif %}
     {% if v.post.pinned_at %}<span class="tag blue">고정</span>{% endif %}
+    {% if v.approval %}<span class="tag blue">{{ v.approval.status_label }}</span>{% endif %}
   </header>
+  {% if v.approval %}<h3 class="approval-title"><a href="/approvals/{{ v.post.id }}">{{ v.approval.approval.title }}</a></h3>{% endif %}
   <div class="body">{{ v.body_html|safe }}</div>
-  {% if v.attachments %}
-  <ul class="attachments">
-    {% for file in v.attachments %}
-    <li>
-      {% if file.is_image %}<a href="/attachments/{{ file.id }}" target="_blank" rel="noopener"><img src="/attachments/{{ file.id }}" alt="{{ file.file_name }}" loading="lazy"></a>{% endif %}
-      <a href="/attachments/{{ file.id }}?download=true">{{ file.file_name }}</a>
-      <span class="muted">{{ file.size|filesize }}</span>
-      {% if v.can_edit %}<button class="link" hx-post="/attachments/{{ file.id }}/delete" hx-confirm="이 첨부를 삭제할까요?" aria-label="{{ file.file_name }} 삭제">삭제</button>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
+  {% include "partials/attachment_list.html" %}
+  {% if v.approval %}{% include "partials/approval_block.html" %}{% endif %}
+  {% if v.ack_total %}
+  <details class="ack-status">
+    <summary>{{ v.ack_done }}/{{ v.ack_total }} 확인</summary>
+    <p class="muted">{% if v.pending_names %}미확인: {{ v.pending_names|join(", ") }}{% else %}모두 확인했습니다.{% endif %}</p>
+  </details>
   {% endif %}
+  {% if v.can_ack %}<button class="primary ack-button" hx-post="/posts/{{ v.post.id }}/ack">읽음 확인</button>{% endif %}
   <div class="reactions">
     {% for r in v.reactions %}
     <button class="chip{% if r.mine %} mine{% endif %}" title="{{ r.names|join(', ') }}" {% if v.can_react %}hx-post="/posts/{{ v.post.id }}/reactions" hx-vals='{{ {"emoji": r.emoji}|tojson }}'{% else %}disabled{% endif %}>{{ r.emoji }} {{ r.names|length }}</button>
