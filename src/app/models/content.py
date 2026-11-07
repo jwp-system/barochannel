@@ -42,6 +42,9 @@ class Attachment(Base):
     storage_key: Mapped[str] = mapped_column(String(255), unique=True)
     size: Mapped[int] = mapped_column(BigInteger)
     mime: Mapped[str] = mapped_column(String(100))
+    # 글과 같이 자리만 지운다. 저장소의 파일과 행은 이력으로 남긴다.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
 
     @property
     def is_image(self) -> bool:

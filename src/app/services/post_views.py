@@ -86,7 +86,9 @@ async def build_views(
     )
     attachments: dict[int, list[Attachment]] = defaultdict(list)
     for attachment in await session.scalars(
-        select(Attachment).where(Attachment.post_id.in_(ids)).order_by(Attachment.id)
+        select(Attachment)
+        .where(Attachment.post_id.in_(ids), Attachment.deleted_at.is_(None))
+        .order_by(Attachment.id)
     ):
         attachments[attachment.post_id].append(attachment)
 

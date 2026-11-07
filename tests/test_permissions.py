@@ -6,10 +6,12 @@ from app.core.db import SessionLocal
 from app.models import Channel, User
 from app.services.permissions import Authorizer, ChannelAccess, decide_access, normalize_grant
 from tests.conftest import (
+    FULL,
     add_channel,
     add_department,
     add_group,
     add_user,
+    browser,
     grant,
     join,
     run,
@@ -163,3 +165,37 @@ def test_department_cycle_does_not_hang() -> None:
     from app.services.permissions import Authorizer as Auth
 
     assert Auth._ancestors(1, {1: 2, 2: 1}) == [1, 2]
+
+
+@pytest.mark.parametrize("scope", ["group", "channel"])
+def test_group_manager_controls_every_permission_including_own(scope: str) -> None:
+    manager = add_user("manager")
+    group = add_group(manager)
+    channel = add_channel(group)
+    member = add_user("member")
+    signed_in = browser(manager)
+    url = (
+        f"/permissions/group/{group.id}"
+        if scope == "group"
+        else (f"/permissions/channel/{channel.id}")
+    )
+    assert signed_in.get(f"/channels/{channel.id}").status_code == 404
+
+    for subject in (manager, member):
+        response = signed_in.post(url, data={"subject": f"user:{subject.id}", **FULL})
+        assert response.status_code == 200
+    assert signed_in.get(f"/channels/{channel.id}").status_code == 200
+    assert browser(member).get(f"/channels/{channel.id}").status_code == 200
+
+    signed_in.post(url, data={"subject": f"user:{manager.id}", "read": "deny"})
+    assert signed_in.get(f"/channels/{channel.id}").status_code == 404
+
+
+def test_group_manager_cannot_control_other_group() -> None:
+    manager = add_user("manager")
+    add_group(manager, "내 그룹")
+    other = add_group(add_user("other"), "다른 그룹")
+    response = browser(manager).post(
+        f"/permissions/group/{other.id}", data={"subject": f"user:{manager.id}", **FULL}
+    )
+    assert response.status_code == 403

@@ -1,9 +1,13 @@
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEV_SECRET_KEY = "dev-only-secret-key"
+DEFAULT_EXTENSIONS = frozenset(
+    "png jpg jpeg gif webp pdf txt csv zip hwp hwpx doc docx xls xlsx ppt pptx".split()
+)
 
 
 class Settings(BaseSettings):
@@ -33,6 +37,8 @@ class Settings(BaseSettings):
 
     max_upload_mb: int = 20
     max_files_per_post: int = 10
+    # 쉼표로 구분한다. 환경 변수 값은 JSON이 아니라 validator가 해석한다.
+    allowed_extensions: Annotated[frozenset[str], NoDecode] = DEFAULT_EXTENSIONS
 
     @field_validator("admin_email")
     @classmethod
@@ -45,6 +51,16 @@ class Settings(BaseSettings):
         if value and len(value) < 8:
             raise ValueError("BARO_ADMIN_PASSWORD는 8자 이상이어야 합니다.")
         return value
+
+    @field_validator("allowed_extensions", mode="before")
+    @classmethod
+    def parse_extensions(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        items = {item.strip().lower().removeprefix(".") for item in value.split(",")} - {""}
+        if not items or not all(item.isalnum() for item in items):
+            raise ValueError("BARO_ALLOWED_EXTENSIONS는 쉼표로 구분한 확장자여야 합니다.")
+        return frozenset(items)
 
 
 @lru_cache

@@ -13,7 +13,8 @@ from botocore.exceptions import ClientError
 
 from app.core.config import get_settings
 
-ALLOWED_TYPES = {
+# 표에 없는 확장자는 설정으로 허용해도 미리보기 없이 내려받기만 된다. svg, html도 마찬가지다.
+KNOWN_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -35,8 +36,11 @@ ALLOWED_TYPES = {
 
 
 def mime_for(file_name: str) -> str | None:
-    """브라우저가 보낸 형식을 믿지 않고 허용 확장자로 정한다."""
-    return ALLOWED_TYPES.get(PurePath(file_name).suffix.lower())
+    """브라우저가 보낸 형식을 믿지 않고 허용 확장자로 정한다. 허용되지 않으면 None이다."""
+    suffix = PurePath(file_name).suffix.lower()
+    if suffix.removeprefix(".") not in get_settings().allowed_extensions:
+        return None
+    return KNOWN_TYPES.get(suffix, "application/octet-stream")
 
 
 @lru_cache

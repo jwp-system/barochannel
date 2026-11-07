@@ -16,6 +16,7 @@
       {% if file.is_image %}<a href="/attachments/{{ file.id }}" target="_blank" rel="noopener"><img src="/attachments/{{ file.id }}" alt="{{ file.file_name }}" loading="lazy"></a>{% endif %}
       <a href="/attachments/{{ file.id }}?download=true">{{ file.file_name }}</a>
       <span class="muted">{{ file.size|filesize }}</span>
+      {% if v.can_edit %}<button class="link" hx-post="/attachments/{{ file.id }}/delete" hx-confirm="이 첨부를 삭제할까요?" aria-label="{{ file.file_name }} 삭제">삭제</button>{% endif %}
     </li>
     {% endfor %}
   </ul>
