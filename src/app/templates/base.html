@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}바로채널{% endblock %}</title>
   <link rel="preload" href="{{ url_for('static', path='fonts/PretendardVariable.woff2') }}" as="font" type="font/woff2" crossorigin>
+  <link rel="icon" href="{{ asset('brand/favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ asset('brand/favicon.ico') }}" sizes="48x48">
+  <link rel="apple-touch-icon" href="{{ asset('brand/apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ asset('brand/site.webmanifest') }}">
+  <meta name="theme-color" content="#3182f6">
   <link rel="stylesheet" href="{{ asset('app.css') }}">
   <script src="{{ asset('htmx.min.js') }}" defer></script>
   <script src="{{ asset('sse.js') }}" defer></script>

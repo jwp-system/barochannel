@@ -1,0 +1,45 @@
+{% extends "page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}감사 로그 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/more">{{ icon("back") }}전체</a>
+<h1>감사 로그</h1>
+<form class="section stack" action="/admin/audit" method="get">
+  <div class="row wrap">
+    <select name="kind" aria-label="종류">
+      <option value="">모든 종류</option>
+      {% for key, label in groups.items() %}<option value="{{ key }}"{% if filters.kind == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <input name="actor" value="{{ filters.actor }}" placeholder="한 사람 (이름, 이메일)" aria-label="한 사람">
+    <input name="target" value="{{ filters.target }}" inputmode="numeric" placeholder="대상 번호 (결재, 글)" aria-label="대상 번호">
+  </div>
+  <div class="row wrap">
+    <label>시작일 <input type="date" name="since" value="{{ filters.since }}"></label>
+    <label>종료일 <input type="date" name="until" value="{{ filters.until }}"></label>
+    <button class="primary">찾기</button>
+  </div>
+</form>
+<section class="section">
+  <div class="audit-head" aria-hidden="true"><span>시각</span><span>내용</span><span>한 사람</span><span>대상</span></div>
+  <ul class="audit-list">
+    {% for log, name, email in rows %}
+    <li>
+      <details class="audit-item" hx-get="/admin/audit/{{ log.id }}" hx-trigger="toggle once" hx-target="find .audit-body">
+        <summary>
+          <span class="audit-time">{{ log.created_at|time }}</span>
+          <span class="audit-action">{{ action_label(log.action) }}{% if log.detail.get("via") == "excel" %} <span class="tag">엑셀</span>{% endif %}</span>
+          <span class="audit-actor" title="{{ email or '' }}">{{ name or "시스템" }}</span>
+          <span class="audit-target">{{ names.target(log) }}</span>
+        </summary>
+        <div class="audit-body" aria-live="polite"><p class="muted">불러오는 중…</p></div>
+      </details>
+    </li>
+    {% else %}
+    <li class="muted">기록이 없습니다.</li>
+    {% endfor %}
+  </ul>
+  {% if next_before %}
+  <a class="button" href="/admin/audit?{% for key, value in filters.items() %}{{ key }}={{ value|urlencode }}&amp;{% endfor %}before={{ next_before }}">이전 기록 더 보기</a>
+  {% endif %}
+</section>
+{% endblock %}

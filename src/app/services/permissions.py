@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Approval,
     ApprovalLineTemplate,
+    ApprovalReference,
     ApprovalReview,
     ApprovalStep,
     Channel,
@@ -241,7 +242,8 @@ class Authorizer:
             _approvers_query(lambda both: both.c.user_id == self.user.id)
         )
         self._approver_channels = {channel_id for channel_id, _ in rows}
-        # 검토자와 지나간 승인자는 채널이 아니라 그 문서에만 권한이 있다.
+        # 검토자, 참조자, 지나간 승인자는 채널이 아니라 그 문서에만 권한이 있다.
+        # 임시저장은 can_view_post가 기안자 말고는 막으므로 상신 전에는 보이지 않는다.
         self._document_posts = set(
             await self.session.scalars(
                 select(Approval.post_id)
@@ -250,7 +252,10 @@ class Authorizer:
                 .union(
                     select(Approval.post_id)
                     .join(ApprovalStep, ApprovalStep.approval_id == Approval.id)
-                    .where(ApprovalStep.approver_id == self.user.id)
+                    .where(ApprovalStep.approver_id == self.user.id),
+                    select(Approval.post_id)
+                    .join(ApprovalReference, ApprovalReference.approval_id == Approval.id)
+                    .where(ApprovalReference.user_id == self.user.id),
                 )
             )
         )
@@ -292,7 +297,10 @@ class Authorizer:
         )
 
     async def post_access(self, channel: Channel, post: Post, parent: Post | None) -> ChannelAccess:
-        """글 하나에 대한 권한. 맡은 결재 문서는 채널 권한이 없어도 읽고 답글을 쓴다."""
+        """글 하나에 대한 권한. 맡은 결재 문서는 채널 권한이 없어도 읽고 답글을 쓴다.
+
+        참조자도 여기에 든다. 승인·검토 버튼은 결재 규칙이 따로 판정하므로 읽기와 의견만 생긴다.
+        """
         access = await self.access(channel)
         root = parent.id if parent else post.id
         if root in self._document_posts and channel.group.archived_at is None:

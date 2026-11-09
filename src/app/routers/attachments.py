@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from app.core.db import SessionDep
 from app.core.deps import AuthzDep, current_user
 from app.models import Attachment
-from app.routers.posts import card, editable_view, post_context
+from app.routers.posts import card, editable_view, is_document, post_context
 from app.services.audit import record_audit
 from app.services.realtime import Event, publish
 from app.services.storage import signed_download_url
@@ -52,6 +52,8 @@ async def delete_attachment(
     post, parent, channel, access = await editable_view(
         session, authz, attachment.post_id, lock=True
     )
+    if is_document(post, channel):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "문서의 첨부는 지울 수 없습니다.")
     remaining = await session.scalar(
         select(func.count())
         .select_from(Attachment)

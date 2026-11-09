@@ -5,13 +5,13 @@ import struct
 import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import hash_password
 from app.models import (
     Approval,
     ApprovalLineTemplate,
@@ -19,54 +19,33 @@ from app.models import (
     Attachment,
     Channel,
     Department,
-    GroupManager,
-    PermissionGrant,
+    Poll,
+    PollOption,
+    PollVote,
     Post,
     PostRevision,
     Reaction,
     User,
-    UserDepartment,
-    WorkspaceGroup,
 )
 from app.services.admin import ADMIN_NAME
 from app.services.audit import record_audit
+from app.services.bulk_import import GROUP_SPECS, ORG_SPECS, import_groups, import_org
+from app.services.channel_import import CHANNEL_SPECS, import_channels
+from app.services.spreadsheet import read_workbook
 from app.services.storage import ensure_bucket, mime_for, put_file
 
-SAMPLE_PASSWORD = "baro-sample-1"
+# seed_data/sample_org.xlsx의 초기 비밀번호와 같다.
+SAMPLE_PASSWORD = "qlalfqjsgh-1"  # 한글 자판으로 '비밀번호-1'
 EMAIL_DOMAIN = "baro.example"
 
-TREE = {
-    "경영지원본부": ["인사팀", "재무팀"],
-    "영업본부": ["영업1팀", "영업2팀"],
-    "개발본부": ["개발팀", "디자인팀"],
-}
-PEOPLE = [
-    ("이서연", "seoyeon", "인사팀"),
-    ("박준호", "junho", "재무팀"),
-    ("정민재", "minjae", "영업본부"),
-    ("김하늘", "haneul", "영업1팀"),
-    ("강지훈", "jihoon", "영업1팀"),
-    ("송예린", "yerin", "영업2팀"),
-    ("임태현", "taehyun", "개발본부"),
-    ("문수빈", "subin", "개발팀"),
-    ("배지아", "jia", "디자인팀"),
-]
-GROUPS = {
-    "전사": (
-        "seoyeon",
-        [
-            ("공지", "talk"),
-            ("자유게시판", "talk"),
-            ("건의함", "talk"),
-            ("일정 조율", "vote"),
-            ("전사 규정", "doc"),
-        ],
-    ),
-    "영업": ("minjae", [("영업 일반", "talk"), ("고객 미팅", "talk"), ("지출결의", "approval")]),
-    "개발": ("taehyun", [("개발 일반", "talk"), ("장애 공유", "talk"), ("설계 문서", "doc")]),
-}
-FULL = {"read": "allow", "write": "allow", "reply_read": "allow", "reply_write": "allow"}
-REPLY = {"read": "allow", "reply_read": "allow", "reply_write": "allow"}
+# 소속·사용자, 그룹·그룹 관리자, 채널·권한은 엑셀 파일에 둔다.
+# 관리 화면의 일괄 등록과 같은 코드로 읽는다.
+SEED_DIR = Path(__file__).resolve().parent / "seed_data"
+SEED_FILES = (
+    (SEED_DIR / "sample_org.xlsx", ORG_SPECS, import_org),
+    (SEED_DIR / "sample_groups.xlsx", GROUP_SPECS, import_groups),
+    (SEED_DIR / "sample_channels.xlsx", CHANNEL_SPECS, import_channels),
+)
 
 
 def sample_png(width: int = 320, height: int = 160) -> bytes:
@@ -93,17 +72,6 @@ class Seeder:
         self.session.add(row)
         await self.session.flush()
         return row
-
-    async def grant(self, scope, subject, **values: str) -> None:
-        await self.add(
-            PermissionGrant(
-                scope_type="channel" if isinstance(scope, Channel) else "group",
-                scope_id=scope.id,
-                subject_type="user" if isinstance(subject, User) else "department",
-                subject_id=subject.id,
-                **{f"can_{key}": value for key, value in values.items()},
-            )
-        )
 
     async def post(
         self,
@@ -148,143 +116,147 @@ async def seed(session: AsyncSession) -> None:
     admin = await db.add(
         User(name=ADMIN_NAME, email=get_settings().admin_email or f"admin@{EMAIL_DOMAIN}")
     )
-    departments: dict[str, Department] = {}
-    for parent_name, children in TREE.items():
-        parent = await db.add(Department(name=parent_name))
-        departments[parent_name] = parent
-        for child in children:
-            departments[child] = await db.add(Department(name=child, parent_id=parent.id))
+    for path, specs, importer in SEED_FILES:
+        report = await importer(session, admin, read_workbook(path.read_bytes(), specs), True)
+        if report.errors:
+            raise RuntimeError(f"{path.name}: " + " / ".join(report.errors))
 
-    password_hash = hash_password(SAMPLE_PASSWORD)
-    users: dict[str, User] = {}
-    for name, login, department in PEOPLE:
-        user = await db.add(
-            User(name=name, email=f"{login}@{EMAIL_DOMAIN}", password_hash=password_hash)
-        )
-        users[login] = user
-        await db.add(
-            UserDepartment(
-                user_id=user.id, department_id=departments[department].id, is_primary=True
-            )
-        )
-
-    groups: dict[str, WorkspaceGroup] = {}
-    channels: dict[str, Channel] = {}
-    for name, (manager, rows) in GROUPS.items():
-        group = await db.add(WorkspaceGroup(name=name, created_by=admin.id))
-        groups[name] = group
-        await db.add(GroupManager(group_id=group.id, user_id=users[manager].id))
-        for order, (channel_name, kind) in enumerate(rows, start=1):
-            channels[channel_name] = await db.add(
-                Channel(group_id=group.id, type=kind, name=channel_name, sort_order=order)
-            )
-
-    # 전사는 모두 읽고 답글을 쓸 수 있고, 공지는 인사팀만 쓴다.
-    for root in TREE:
-        await db.grant(groups["전사"], departments[root], **REPLY)
-        await db.grant(channels["자유게시판"], departments[root], write="allow")
-        # 건의함은 쓰기만 준다. 쓴 사람은 자기 글만 본다.
-        await db.grant(channels["건의함"], departments[root], read="deny", write="allow")
-    await db.grant(channels["공지"], departments["인사팀"], write="allow")
-    await db.grant(channels["건의함"], departments["인사팀"], read="allow", write="allow")
-
-    await db.grant(groups["영업"], departments["영업본부"], **FULL)
-    await db.grant(groups["개발"], departments["개발본부"], **FULL)
-    # 기획서 판정 예시: 인턴은 사용자 거부, 타 부서 협업자는 사용자 허용.
-    await db.grant(channels["영업 일반"], users["jihoon"], write="deny")
-    await db.grant(
-        channels["고객 미팅"], users["subin"], read="allow", reply_read="allow", reply_write="allow"
-    )
+    departments = {item.name: item for item in await session.scalars(select(Department))}
+    users = {
+        item.email.split("@")[0]: item
+        for item in await session.scalars(select(User).where(User.id != admin.id))
+    }
+    channels = {item.name: item for item in await session.scalars(select(Channel))}
 
     u = users
     notice = await db.post(
         channels["공지"],
-        u["seoyeon"],
+        u["hr1"],
         "## 바로채널 오픈 안내\n\n오늘부터 사내 소통은 **바로채널**에서 진행합니다.\n\n"
         "- 채널 권한은 소속 기준으로 열립니다\n- 궁금한 점은 답글로 남겨 주세요",
         50,
     )
     notice.pinned_at = db.now - timedelta(hours=49)
-    notice.pinned_by = u["seoyeon"].id
-    await db.react(notice, "👍", u["minjae"], u["haneul"], u["taehyun"], u["jia"])
-    await db.react(notice, "🎉", u["subin"], u["yerin"])
-    await db.post(channels["공지"], u["haneul"], "모바일에서도 쓸 수 있나요?", 49, notice)
+    notice.pinned_by = u["hr1"].id
+    await db.react(notice, "👍", u["sa1"], u["sa2"], u["pd1"], u["qa1"])
+    await db.react(notice, "🎉", u["pd2"], u["sa4"])
+    await db.post(channels["공지"], u["sa2"], "모바일에서도 쓸 수 있나요?", 49, notice)
     await db.post(
-        channels["공지"], u["seoyeon"], "네, 휴대폰 브라우저에서 그대로 쓰시면 됩니다.", 48, notice
+        channels["공지"], u["hr1"], "네, 휴대폰 브라우저에서 그대로 쓰시면 됩니다.", 48, notice
     )
 
     holiday = await db.post(
         channels["공지"],
-        u["seoyeon"],
+        u["hr1"],
         "연말 휴무 일정은 **12월 24일**부터입니다. 팀별 비상 연락망을 확인해 주세요.",
         20,
     )
     await db.attach(holiday, "연말_휴무_안내.txt", "연말 휴무 안내 샘플 문서입니다.\n".encode())
 
     lunch = await db.post(
-        channels["자유게시판"], u["jia"], "회사 앞에 새로 생긴 칼국숫집 맛있어요 😄", 30
+        channels["자유게시판"], u["qa1"], "회사 앞에 새로 생긴 칼국숫집 맛있어요 😄", 30
     )
-    await db.react(lunch, "❤️", u["yerin"], u["subin"])
-    await db.post(channels["자유게시판"], u["yerin"], "내일 같이 가요!", 29, lunch)
+    await db.react(lunch, "❤️", u["sa4"], u["pd2"])
+    await db.post(channels["자유게시판"], u["sa4"], "내일 같이 가요!", 29, lunch)
 
-    edited = await db.post(channels["자유게시판"], u["junho"], "사내 동호회 회원을 모집합니다.", 10)
+    edited = await db.post(channels["자유게시판"], u["fi1"], "사내 동호회 회원을 모집합니다.", 10)
     await db.add(
         PostRevision(
-            post_id=edited.id, version=1, body_md="동호회 모집합니다", edited_by=u["junho"].id
+            post_id=edited.id, version=1, body_md="동호회 모집합니다", edited_by=u["fi1"].id
         )
     )
     edited.edited_at = db.now - timedelta(hours=9)
 
-    removed = await db.post(channels["자유게시판"], u["subin"], "잘못 올린 글입니다.", 8)
+    removed = await db.post(channels["자유게시판"], u["pd2"], "잘못 올린 글입니다.", 8)
     removed.deleted_at = db.now - timedelta(hours=7)
-    removed.deleted_by = u["subin"].id
+    removed.deleted_by = u["pd2"].id
     record_audit(
         session,
-        actor_id=u["subin"].id,
+        actor_id=u["pd2"].id,
         action="post.delete",
         target_type="post",
         target_id=removed.id,
         channel_id=removed.channel_id,
     )
 
-    await db.post(channels["건의함"], u["haneul"], "휴게실에 정수기를 한 대 더 놓아 주세요.", 26)
-    await db.post(channels["건의함"], u["subin"], "회의실 예약이 어려워요.", 12)
+    await db.post(channels["건의함"], u["sa2"], "휴게실에 정수기를 한 대 더 놓아 주세요.", 26)
+    await db.post(channels["건의함"], u["pd2"], "회의실 예약이 어려워요.", 12)
 
     team = await db.post(
         channels["영업 일반"],
-        u["minjae"],
+        u["sa1"],
         "이번 달 목표\n\n| 팀 | 목표 |\n| --- | --- |\n| 영업1팀 | 12건 |\n| 영업2팀 | 9건 |",
         28,
     )
     team.pinned_at = db.now - timedelta(hours=27)
-    team.pinned_by = u["minjae"].id
-    await db.react(team, "✅", u["haneul"], u["yerin"])
-    await db.post(channels["영업 일반"], u["haneul"], "1팀 제안서 초안 공유드립니다.", 6)
+    team.pinned_by = u["sa1"].id
+    await db.react(team, "✅", u["sa2"], u["sa4"])
+    await db.post(channels["영업 일반"], u["sa2"], "1팀 제안서 초안 공유드립니다.", 6)
 
     meeting = await db.post(
         channels["고객 미팅"],
-        u["haneul"],
+        u["sa2"],
         "내일 10시 고객사 미팅입니다. 부스 시안 확인 부탁드려요.",
         5,
     )
     await db.attach(meeting, "부스_시안.png", sample_png())
-    await db.post(channels["고객 미팅"], u["subin"], "데모 환경은 준비해 두겠습니다.", 4, meeting)
+    await db.post(
+        channels["고객 미팅"],
+        u["pd2"],
+        "전시용 샘플 제품은 생산팀에서 준비해 두겠습니다.",
+        4,
+        meeting,
+    )
 
-    release = await db.post(
-        channels["개발 일반"],
-        u["taehyun"],
-        "이번 주 배포 일정입니다.\n\n```\n수요일 14:00 스테이징\n목요일 10:00 운영\n```",
+    plan = await db.post(
+        channels["생산 일반"],
+        u["pd1"],
+        "이번 주 생산 계획입니다.\n\n| 라인 | 품목 | 수량 |\n| --- | --- | --- |\n"
+        "| 1라인 | A형 | 1,200개 |\n| 2라인 | B형 | 800개 |",
         24,
     )
-    await db.react(release, "👀", u["subin"], u["jia"])
-    await db.post(channels["장애 공유"], u["subin"], "로그인 지연은 원인을 찾아 해결했습니다.", 3)
+    await db.react(plan, "👀", u["pd2"], u["qa1"])
+    await db.post(
+        channels["설비 장애"], u["pd2"], "2라인 컨베이어 정지는 원인을 찾아 조치했습니다.", 3
+    )
+    standard = await db.post(
+        channels["작업 표준"], u["qa1"], "## 출하 검사\n\n- 외관 확인\n- 치수 측정 3회", 20
+    )
+    standard.title = "출하 검사 기준"
+
+    # 투표와 문서. 일정 조율은 전사가 읽고 인사팀이 올린다.
+    workshop = await db.post(
+        channels["일정 조율"], u["hr1"], "하반기 워크숍 날짜를 골라 주세요.", 6
+    )
+    await db.add(Poll(post_id=workshop.id, multi_select=True, closes_at=db.now + timedelta(days=3)))
+    for number, label in enumerate(["12월 4일", "12월 11일", "12월 18일"], start=1):
+        option = await db.add(PollOption(post_id=workshop.id, position=number, label=label))
+        for voter in {1: ["sa2", "qa1"], 2: ["sa1"], 3: []}[number]:
+            await db.add(PollVote(post_id=workshop.id, user_id=u[voter].id, option_id=option.id))
+    rule = await db.post(
+        channels["전사 규정"],
+        u["hr1"],
+        "## 연차\n\n- 입사 1년 후 15일\n- 반차는 4시간 단위",
+        40,
+    )
+    rule.title = "휴가 규정"
+    await db.add(
+        PostRevision(
+            post_id=rule.id,
+            version=1,
+            title="휴가 규정",
+            body_md="## 연차\n\n- 입사 1년 후 15일",
+            edited_by=u["hr1"].id,
+        )
+    )
+    rule.edited_at = db.now - timedelta(hours=30)
 
     # 영업1팀은 자기 승인선을, 영업2팀은 상위 소속인 영업본부의 승인선을 쓴다.
     expense = channels["지출결의"]
     expense.approval_template_md = "## 지출 내용\n\n- 금액:\n- 사유:\n"
     for department, line in (
-        ("영업1팀", ["minjae", "junho"]),
-        ("영업본부", ["taehyun", "junho"]),
+        ("영업1팀", ["sa1", "fi1"]),
+        ("영업본부", ["fi1"]),
     ):
         for number, login in enumerate(line, start=1):
             await db.add(
@@ -296,12 +268,12 @@ async def seed(session: AsyncSession) -> None:
                 )
             )
     booth = await db.post(
-        expense, u["haneul"], "## 지출 내용\n\n- 금액: 1,200,000원\n- 사유: 전시회 부스 임차", 2
+        expense, u["sa2"], "## 지출 내용\n\n- 금액: 1,200,000원\n- 사유: 전시회 부스 임차", 2
     )
     draft = await db.add(
         Approval(
             post_id=booth.id,
-            drafter_id=u["haneul"].id,
+            drafter_id=u["sa2"].id,
             department_id=departments["영업1팀"].id,
             title="전시회 부스 비용",
             status="in_progress",
@@ -314,13 +286,13 @@ async def seed(session: AsyncSession) -> None:
             approval_id=draft.id,
             step_no=0,
             step_type="draft",
-            approver_id=u["haneul"].id,
+            approver_id=u["sa2"].id,
             status="approved",
             acted_at=db.now - timedelta(hours=2),
         )
     )
-    await db.add(ApprovalStep(approval_id=draft.id, step_no=1, approver_id=u["minjae"].id))
-    await db.add(ApprovalStep(approval_id=draft.id, step_no=2, approver_id=u["junho"].id))
+    await db.add(ApprovalStep(approval_id=draft.id, step_no=1, approver_id=u["sa1"].id))
+    await db.add(ApprovalStep(approval_id=draft.id, step_no=2, approver_id=u["fi1"].id))
 
     record_audit(
         session,

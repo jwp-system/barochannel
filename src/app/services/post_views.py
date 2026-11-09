@@ -17,6 +17,7 @@ from app.services.permissions import (
     can_view_replies,
     can_write_reply,
 )
+from app.services.polls import PollView, poll_views
 
 EMOJIS = ("👍", "❤️", "😄", "🎉", "👀", "✅")
 PAGE_SIZE = 50
@@ -42,11 +43,13 @@ class PostView:
     can_react: bool
     can_open_thread: bool
     can_pin: bool
+    can_delete_files: bool = False
     ack_total: int = 0
     ack_done: int = 0
     pending_names: list[str] = field(default_factory=list)
     can_ack: bool = False
     approval: ApprovalView | None = None
+    poll: PollView | None = None
 
     @property
     def is_reply(self) -> bool:
@@ -131,8 +134,14 @@ async def build_views(
         acks[post_id].append((target_id, name, acked_at is not None))
 
     approvals = (
-        await approval_views(session, ids, channel.id, user.id)
+        await approval_views(session, ids, channel.id, user.id, access.read and access.write)
         if channel.type == "approval" and parent is None
+        else {}
+    )
+
+    polls = (
+        await poll_views(session, ids, user.id, access.read)
+        if channel.type == "vote" and parent is None
         else {}
     )
 
@@ -159,7 +168,15 @@ async def build_views(
                 ],
                 reply_count=replies,
                 can_edit=own and can_change and not deleted,
-                can_delete=own and can_change and not deleted and replies == 0,
+                can_delete=own
+                and can_change
+                and not deleted
+                and replies == 0
+                and not (channel.type == "doc" and parent is None),
+                can_delete_files=own
+                and can_change
+                and not deleted
+                and not (channel.type == "doc" and parent is None),
                 can_react=access.read and not deleted,
                 can_open_thread=parent is None and can_view_replies(access, post, user.id),
                 can_pin=(
@@ -171,6 +188,7 @@ async def build_views(
                 can_ack=not deleted
                 and any(target == user.id and not done for target, _, done in acks[post.id]),
                 approval=approvals.get(post.id),
+                poll=None if deleted else polls.get(post.id),
             )
         )
     return views

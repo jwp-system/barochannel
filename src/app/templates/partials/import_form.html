@@ -1,0 +1,13 @@
+{% macro import_form(action, export_url, target, note) %}
+<section class="section">
+  <h2>엑셀로 한꺼번에 등록</h2>
+  <p class="muted">{{ note }} 현재 데이터를 내려받아 고친 뒤 올리면 됩니다. 사용법은 파일의 '안내' 시트에 있습니다.</p>
+  <p><a class="button" href="{{ export_url }}" download>현재 데이터 내려받기</a></p>
+  <form class="row" hx-post="{{ action }}" hx-encoding="multipart/form-data" hx-target="#{{ target }}">
+    <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required aria-label="엑셀 파일">
+    <button name="mode" value="check">미리 확인</button>
+    <button class="primary" name="mode" value="apply">반영</button>
+  </form>
+  <div id="{{ target }}" aria-live="polite"></div>
+</section>
+{% endmacro %}

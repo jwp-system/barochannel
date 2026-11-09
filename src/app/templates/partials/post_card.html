@@ -9,10 +9,12 @@
     {% if v.post.pinned_at %}<span class="tag blue">고정</span>{% endif %}
     {% if v.approval %}<span class="tag blue">{{ v.approval.status_label }}</span>{% endif %}
   </header>
+  {% if v.post.title and not v.is_reply %}<h3 class="approval-title"><a href="/posts/{{ v.post.id }}">{{ v.post.title }}</a></h3>{% endif %}
   {% if v.approval %}<h3 class="approval-title"><a href="/approvals/{{ v.post.id }}">{{ v.approval.approval.title }}</a></h3>{% endif %}
   <div class="body">{{ v.body_html|safe }}</div>
   {% include "partials/attachment_list.html" %}
   {% if v.approval %}{% include "partials/approval_block.html" %}{% endif %}
+  {% if v.poll %}{% include "partials/poll_block.html" %}{% endif %}
   {% if v.ack_total %}
   <details class="ack-status">
     <summary>{{ v.ack_done }}/{{ v.ack_total }} 확인</summary>
@@ -42,6 +44,7 @@
     {% endif %}
     {% if v.can_edit %}<button class="link" hx-get="/posts/{{ v.post.id }}/edit">수정</button>{% endif %}
     {% if v.can_delete %}<button class="link" hx-post="/posts/{{ v.post.id }}/delete" hx-confirm="이 글을 삭제할까요?">삭제</button>{% endif %}
+    {% if v.post.title and v.post.edited_at and not v.is_reply %}<a class="link" href="/posts/{{ v.post.id }}/revisions">이전 버전</a>{% endif %}
     {% if v.can_pin %}<button class="link" hx-post="/posts/{{ v.post.id }}/pin">{{ "고정 해제" if v.post.pinned_at else "고정" }}</button>{% endif %}
   </footer>
 </article>

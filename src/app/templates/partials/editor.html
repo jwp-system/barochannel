@@ -1,0 +1,14 @@
+{# 작성 화면의 본문 편집기. 작성과 미리보기를 쓰기 영역 바로 위의 탭으로 바꾼다. #}
+{% macro editor(label, name="body", value="", rows=10, required=false, mentions=none) %}
+<div class="editor">
+  <div class="editor-head">
+    <label class="editor-label" for="editor-{{ name }}">{{ label }}</label>
+    <div class="editor-tabs" role="tablist" aria-label="{{ label }} 보기 방식">
+      <button type="button" role="tab" class="on" aria-selected="true" data-editor-tab="write">작성</button>
+      <button type="button" role="tab" aria-selected="false" data-editor-tab="preview">미리보기</button>
+    </div>
+  </div>
+  <textarea id="editor-{{ name }}" name="{{ name }}" rows="{{ rows }}" maxlength="50000"{% if required %} required{% endif %}{% if mentions %} data-mentions="{{ mentions }}"{% endif %}>{{ value }}</textarea>
+  <div class="editor-preview" role="tabpanel" aria-label="{{ label }} 미리보기" hidden></div>
+</div>
+{% endmacro %}

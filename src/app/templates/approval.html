@@ -1,20 +1,15 @@
-{% extends "page.html" %}
+{% extends "channel_page.html" %}
 {% from "partials/icons.html" import icon %}
+{% from "partials/approval_planner.html" import approval_planner %}
 {% block title %}{{ v.approval.approval.title }} · 바로채널{% endblock %}
 {% block content %}
 <a class="back" href="/channels/{{ channel.id }}">{{ icon("back") }}{{ channel.name }}</a>
 {% include "partials/post_card.html" %}
-{% if v.approval.can_submit %}
-<form class="section stack reviewer-picker" hx-post="/approvals/{{ v.post.id }}/submit" hx-swap="none"
-      hx-on::after-request="if (event.detail.successful) location.reload()"
-      data-candidates="/approvals/{{ v.post.id }}/reviewer-candidates">
+{% if v.approval.can_submit and planner %}
+<form class="section stack" hx-post="/approvals/{{ v.post.id }}/submit" hx-swap="none"
+      hx-on::after-request="if (event.detail.successful) location.reload()">
   <h2>상신</h2>
-  <p class="muted">검토자는 선택입니다. 검토자가 있으면 검토가 끝나야 최종 승인할 수 있습니다.</p>
-  <ul class="line-steps"></ul>
-  <div class="line-search">
-    <input type="search" autocomplete="off" placeholder="이름, 이메일, 소속으로 검토자 추가" aria-label="검토자 검색">
-  </div>
-  <div class="reviewer-inputs"></div>
+  {{ approval_planner(planner) }}
   <button class="primary">기안 승인 (상신)</button>
 </form>
 {% endif %}
@@ -34,6 +29,16 @@
   {% endif %}
 </form>
 {% endif %}
+{% if dispatch_targets %}
+<form class="section stack" hx-post="/approvals/{{ v.post.id }}/dispatch" hx-confirm="고른 채널로 발신할까요? 되돌릴 수 없습니다.">
+  <h2>다른 결재 채널로 발신</h2>
+  <p class="muted">받은 채널에서 수신 완료를 체크하면 그 채널의 승인선으로 결재가 이어집니다.</p>
+  {% for row, auto in dispatch_targets %}
+  <label class="check"><input type="checkbox" name="channel_ids" value="{{ row.id }}"> # {{ row.name }}{% if auto %} (자동 발신 채널){% endif %}</label>
+  {% endfor %}
+  <button class="primary">발신</button>
+</form>
+{% endif %}
 {% if v.approval.approval.published_post_id %}<p class="muted">소통 채널에 게시했습니다.</p>{% endif %}
-{% if show_thread %}<section class="section" id="thread" hx-get="/posts/{{ v.post.id }}/thread" hx-trigger="load" hx-swap="innerHTML"></section>{% endif %}
+{% if show_thread %}<div hidden data-auto-thread="/posts/{{ v.post.id }}/thread"></div>{% endif %}
 {% endblock %}

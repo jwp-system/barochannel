@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 import uvicorn
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, FastAPI, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import DEV_SECRET_KEY, get_settings
@@ -20,12 +20,16 @@ from app.routers import (
     admin_groups,
     approvals,
     attachments,
+    audit,
     auth,
+    documents,
     events,
     health,
     org,
     pages,
+    polls,
     posts,
+    search,
     spaces,
 )
 from app.services.admin import PIN_CHANGE_PATH
@@ -102,6 +106,12 @@ def create_app() -> FastAPI:
     application.add_exception_handler(AdminPinRequired, admin_pin_required)
     application.add_exception_handler(PinChangeRequired, pin_change_required)
     application.mount("/static", CachedStaticFiles(directory=APP_DIR / "static"), name="static")
+
+    @application.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        # 링크 태그를 읽지 않는 브라우저와 도구가 주소 뿌리에서 찾는다.
+        return FileResponse(APP_DIR / "static/brand/favicon.ico", media_type="image/x-icon")
+
     for module in (
         health,
         auth,
@@ -111,6 +121,10 @@ def create_app() -> FastAPI:
         spaces,
         posts,
         approvals,
+        polls,
+        documents,
+        search,
+        audit,
         attachments,
         events,
     ):

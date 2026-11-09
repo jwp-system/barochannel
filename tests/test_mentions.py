@@ -363,6 +363,8 @@ def test_count_stream_sends_on_connect_and_on_change(space) -> None:
     async def scenario() -> None:
         stream = count_stream(target.id)
         assert await anext(stream) == "event: counts\ndata: 1\n\n"
+        # 이어서 채널별 새 글 수를 한 번 보낸다.
+        assert (await anext(stream)).startswith("event: unread\n")
         waiting = asyncio.create_task(anext(stream))
         await asyncio.sleep(0)
         async with SessionLocal() as session:

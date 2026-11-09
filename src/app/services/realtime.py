@@ -50,6 +50,8 @@ class Hub:
     def __init__(self) -> None:
         self._subscribers: dict[int, set[asyncio.Queue[Event | None]]] = {}
         self._user_subscribers: dict[int, set[asyncio.Queue[bool | None]]] = {}
+        # 개수 연결마다 새 글 수를 세는 채널. 그 채널에 글이 오면 다시 세도록 깨운다.
+        self._watching: dict[asyncio.Queue[bool | None], frozenset[int]] = {}
         self._task: asyncio.Task[None] | None = None
 
     def subscribe(self, channel_id: int) -> asyncio.Queue[Event | None]:
@@ -70,7 +72,11 @@ class Hub:
         self._user_subscribers.setdefault(user_id, set()).add(queue)
         return queue
 
+    def watch(self, queue: asyncio.Queue[bool | None], channel_ids: Iterable[int]) -> None:
+        self._watching[queue] = frozenset(channel_ids)
+
     def unsubscribe_user(self, user_id: int, queue: asyncio.Queue[bool | None]) -> None:
+        self._watching.pop(queue, None)
         subscribers = self._user_subscribers.get(user_id)
         if subscribers is not None:
             subscribers.discard(queue)
@@ -84,6 +90,12 @@ class Hub:
                     queue.put_nowait(True)
 
     def dispatch(self, event: Event) -> None:
+        if event.kind in ("created", "updated"):
+            # 새 글과 삭제가 새 글 수를 바꾼다. 신호만 주고 개수는 받는 쪽이 센다.
+            for user_queue, channel_ids in list(self._watching.items()):
+                if event.channel_id in channel_ids:
+                    with suppress(asyncio.QueueFull):
+                        user_queue.put_nowait(True)
         for queue in list(self._subscribers.get(event.channel_id, ())):
             try:
                 queue.put_nowait(event)

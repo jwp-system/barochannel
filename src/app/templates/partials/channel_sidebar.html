@@ -1,0 +1,32 @@
+{# 채널 화면과 채널 안의 글·작성 화면이 함께 쓴다. current_group이 없으면 navigation에서 찾는다. #}
+{% from "partials/icons.html" import icon %}
+{% from "partials/unread.html" import unread_badge %}
+{% set nav_group = current_group if current_group is defined and current_group else (navigation|default([])|selectattr("group.id", "equalto", channel.group_id)|first) %}
+{% set current_group = nav_group %}
+{% set manages = is_manager if is_manager is defined else (nav_group.managed if nav_group else false) %}
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h2>{{ current_group.group.name if current_group else "바로채널" }}</h2>
+      {% if manages %}<a href="/groups/{{ channel.group_id }}/settings" aria-label="그룹 설정">{{ icon("settings") }}</a>{% endif %}
+    </div>
+    <form class="sidebar-search" action="/search" method="get" role="search">
+      <input type="search" name="q" required maxlength="100" placeholder="{{ current_group.group.name if current_group else '' }} 그룹에서 찾기" aria-label="그룹에서 찾기">
+      <input type="hidden" name="group_id" value="{{ channel.group_id }}">
+    </form>
+    {% if current_group %}
+    {% for type, label in CHANNEL_TYPES.items() %}
+      {% set rows = current_group.channels|selectattr("type", "equalto", type)|list %}
+      {% if rows %}
+      <section class="nav-category" aria-labelledby="nav-{{ type }}">
+        <h3 id="nav-{{ type }}">{{ label }}</h3>
+        <ul>
+          {% for row in rows %}
+          {% set count = current_group.unread.get(row.id, 0) %}
+          <li><a href="/channels/{{ row.id }}" data-channel="{{ row.id }}" class="{% if count %}has-unread{% endif %}"{% if row.id == channel.id %} aria-current="page"{% endif %}><span class="channel-name"># {{ row.name }}</span>{{ unread_badge(count, row.id) }}</a></li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+    {% endfor %}
+    {% endif %}
+  </aside>

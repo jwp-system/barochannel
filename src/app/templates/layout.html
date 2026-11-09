@@ -2,11 +2,24 @@
 {% block body %}
 <div class="frame">
   {% include "partials/admin_bar.html" %}
+  {% if user is defined and user %}
+  <header class="user-bar">
+    <a class="brand" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="26" height="26">바로채널</a>
+    <a class="user-chip" href="/more" aria-label="내 정보: {{ user.name }}, {{ user.department_name or ('시스템 관리자' if is_system_admin(user) else '소속 없음') }}">
+      <span class="avatar" aria-hidden="true">{{ user.name[:1] }}</span>
+      <span class="user-text">
+        <strong>{{ user.name }}</strong>
+        <small><span class="user-dept">{{ user.department_name or ("시스템 관리자" if is_system_admin(user) else "소속 없음") }}</span><span class="user-email">{{ user.email }}</span></small>
+      </span>
+    </a>
+  </header>
+  {% endif %}
   <div class="app{% if root_tab %} has-tabbar{% endif %}"{% block app_attrs %}{% endblock %}>
     <nav class="rail" aria-label="주 메뉴">
       <div class="rail-groups">
+        {% if current_group is defined and current_group %}{% set rail_group_id = current_group.group.id %}{% elif channel is defined and channel %}{% set rail_group_id = channel.group_id %}{% else %}{% set rail_group_id = none %}{% endif %}
         {% for item in navigation|default([]) %}
-        <a href="{{ item.href }}" title="{{ item.group.name }}" class="rail-item{% if current_group and item.group.id == current_group.group.id %} active{% endif %}">{{ item.group.name[:2] }}</a>
+        <a href="{{ item.href }}" title="{{ item.group.name }}" class="rail-item{% if item.group.id == rail_group_id %} active{% endif %}"{% if item.group.id == rail_group_id %} aria-current="true"{% endif %}>{{ item.group.name[:2] }}<i class="rail-dot" data-unread-group="{{ item.group.id }}"{% if not item.unread_total %} hidden{% endif %}><span class="sr-only">새 글 있음</span></i></a>
         {% endfor %}
       </div>
       <div class="rail-tabs">{% include "partials/nav_tabs.html" %}</div>

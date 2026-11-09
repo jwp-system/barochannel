@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncGenerator, Awaitable
 
 from anyio import CancelScope
@@ -6,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.core.deps import LoginRequired
-from app.services.delivery import messages_for, still_allowed, todo_count
+from app.services.delivery import count_state, messages_for, still_allowed
 from app.services.realtime import hub
 
 router = APIRouter(tags=["events"], include_in_schema=False)
@@ -50,18 +51,27 @@ async def stream(user_id: int, channel_id: int) -> AsyncGenerator[str]:
 
 
 async def count_stream(user_id: int) -> AsyncGenerator[str]:
-    """내 할 일 개수만 보낸다. 접속하면 바로 한 번 보내고, 바뀌면 다시 보낸다."""
+    """내 할 일 개수와 채널별 새 글 수를 보낸다. 접속하면 바로 한 번 보내고, 바뀌면 다시 보낸다."""
     queue = hub.subscribe_user(user_id)
-    sent: int | None = None
+    sent_todo: int | None = None
+    sent_unread: str | None = None
     try:
         while True:
-            count = await uninterrupted(todo_count(user_id))
-            if count is None:
+            state = await uninterrupted(count_state(user_id))
+            if state is None:
                 return
-            if count != sent:
-                sent = count
-                yield format_event("counts", str(count))
-            else:
+            hub.watch(queue, state.watched)
+            unread = json.dumps(state.unread, sort_keys=True)
+            changed = False
+            if state.todo != sent_todo:
+                sent_todo = state.todo
+                changed = True
+                yield format_event("counts", str(state.todo))
+            if unread != sent_unread:
+                sent_unread = unread
+                changed = True
+                yield format_event("unread", unread)
+            if not changed:
                 yield ": ping\n\n"
             try:
                 if await asyncio.wait_for(queue.get(), HEARTBEAT_SECONDS) is None:

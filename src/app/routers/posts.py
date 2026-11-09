@@ -13,7 +13,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +22,7 @@ from app.core.config import get_settings
 from app.core.db import SessionDep
 from app.core.deps import AuthzDep, current_user
 from app.core.markdown import render_markdown
-from app.core.templating import fragment
+from app.core.templating import fragment, templates
 from app.models import (
     Approval,
     Attachment,
@@ -36,6 +36,7 @@ from app.models import (
 )
 from app.services.audit import record_audit
 from app.services.mentions import MentionError, sync_mentions
+from app.services.navigation import build_navigation
 from app.services.permissions import (
     Authorizer,
     ChannelAccess,
@@ -53,6 +54,10 @@ MAX_BODY_LENGTH = 50_000
 MENTION_CANDIDATES = 8
 Files = Annotated[list[UploadFile] | None, File()]
 Body = Annotated[str, Form(max_length=MAX_BODY_LENGTH)]
+
+
+def is_document(post: Post, channel: Channel) -> bool:
+    return channel.type == "doc" and post.parent_post_id is None
 
 
 def not_found() -> HTTPException:
@@ -245,6 +250,32 @@ async def create_reply(
     return await card(session, authz, reply, post, channel, access)
 
 
+@router.get("/posts/{post_id}", response_class=HTMLResponse)
+async def post_page(
+    request: Request, post_id: int, session: SessionDep, authz: AuthzDep
+) -> Response:
+    """글 하나만 보는 화면. 검색 결과와 문서 보기가 쓴다. 답글은 원글로 보낸다."""
+    post, parent, channel, access = await post_context(session, authz, post_id)
+    if parent is not None:
+        return RedirectResponse(f"/posts/{parent.id}#post-{post.id}", status.HTTP_303_SEE_OTHER)
+    if channel.type == "approval":
+        return RedirectResponse(f"/approvals/{post.id}", status.HTTP_303_SEE_OTHER)
+    (view,) = await build_views(session, [post], authz, channel, access)
+    return templates.TemplateResponse(
+        request,
+        "post.html",
+        {
+            "user": authz.user,
+            "navigation": await build_navigation(authz),
+            "active_tab": "home",
+            "channel": channel,
+            "v": view,
+            "show_thread": can_view_replies(access, post, authz.user.id),
+            "live_channel": (await authz.access(channel)).can_enter,
+        },
+    )
+
+
 @router.get("/posts/{post_id}/card", response_class=HTMLResponse)
 async def post_card(post_id: int, session: SessionDep, authz: AuthzDep) -> HTMLResponse:
     post, parent, channel, access = await post_context(session, authz, post_id)
@@ -290,7 +321,9 @@ async def update_post(
         approval = await session.scalar(select(Approval).where(Approval.post_id == post.id))
         if approval is not None:
             approval.title = title.strip()
-    if body != post.body_md:
+    # 문서는 제목도 버전에 들어간다. 제목만 바꿔도 이전 버전을 남긴다.
+    new_title = title.strip() if post.title is not None and title.strip() else post.title
+    if body != post.body_md or new_title != post.title:
         version = await session.scalar(
             select(func.coalesce(func.max(PostRevision.version), 0)).where(
                 PostRevision.post_id == post.id
@@ -300,11 +333,13 @@ async def update_post(
             PostRevision(
                 post_id=post.id,
                 version=(version or 0) + 1,
+                title=post.title,
                 body_md=post.body_md,
                 edited_by=authz.user.id,
             )
         )
         post.body_md = body
+        post.title = new_title
         post.edited_at = datetime.now(UTC)
         await apply_mentions(session, post, parent, channel)
         if reconfirm:
@@ -443,6 +478,8 @@ async def mention_candidates(
 @router.post("/posts/{post_id}/delete", response_class=HTMLResponse)
 async def delete_post(post_id: int, session: SessionDep, authz: AuthzDep) -> HTMLResponse:
     post, parent, channel, access = await editable_view(session, authz, post_id, lock=True)
+    if is_document(post, channel):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "등록한 문서는 삭제할 수 없습니다.")
     live_replies = await session.scalar(
         select(func.count())
         .select_from(Post)

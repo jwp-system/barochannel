@@ -1,5 +1,6 @@
 {% extends "page.html" %}
 {% from "partials/icons.html" import icon %}
+{% from "partials/unread.html" import unread_badge %}
 {% block title %}바로채널{% endblock %}
 {% block content %}
 <h1 class="greeting">{{ user.name }}님,<br>오늘의 채널이에요</h1>
@@ -13,6 +14,7 @@
   <a class="menu-row" href="/channels/{{ channel.id }}">
     <span class="menu-icon {{ channel.type }}">{{ icon(channel.type) }}</span>
     <span class="menu-text"><strong>{{ channel.name }}</strong><small>{{ CHANNEL_TYPES[channel.type] }}</small></span>
+    {{ unread_badge(item.unread.get(channel.id, 0), channel.id) }}
     {{ icon("chevron") }}
   </a>
   {% else %}

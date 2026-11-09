@@ -1,0 +1,25 @@
+{% set p = v.poll %}
+<form class="poll" hx-post="/posts/{{ v.post.id }}/vote">
+  <p class="muted">
+    {{ "여러 개 선택" if p.poll.multi_select else "하나만 선택" }}{% if p.poll.anonymous %} · 익명{% endif %}
+    · {% if p.closed %}마감됨{% else %}{{ p.poll.closes_at|time }} 마감{% endif %}
+    {% if not p.visible %} · 결과는 마감 후 공개{% endif %}
+  </p>
+  <ul class="poll-options-list">
+    {% for o in p.options %}
+    <li class="poll-option{% if o.mine %} mine{% endif %}">
+      <label>
+        {% if p.can_vote %}<input type="{{ 'checkbox' if p.poll.multi_select else 'radio' }}" name="option_ids" value="{{ o.id }}"{% if o.mine %} checked{% endif %}>{% elif o.mine %}<span aria-label="내 선택">✓</span>{% endif %}
+        <span class="poll-label">{{ o.label }}</span>
+        {% if p.visible %}<span class="muted">{{ o.count }}명 · {{ o.percent }}%</span>{% endif %}
+      </label>
+      {% if p.visible %}<div class="poll-bar"><i style="width: {{ o.percent }}%"></i></div>{% endif %}
+      {% if o.names %}<p class="muted poll-names">{{ o.names|join(", ") }}</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="approval-actions">
+    {% if p.can_vote %}<button class="primary">{{ "선택 바꾸기" if p.voted else "투표" }}</button>{% endif %}
+    {% if p.visible %}<span class="muted">{{ p.voters }}명 참여{% if p.changed is not none %} · 변심 {{ p.changed }}명{% endif %}</span>{% endif %}
+  </div>
+</form>

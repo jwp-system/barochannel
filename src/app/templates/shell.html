@@ -4,25 +4,7 @@
 {# 타임라인과 쓰레드가 같은 연결을 쓰도록 둘을 감싸는 곳에 둔다. #}
 {% block app_attrs %} hx-ext="sse" sse-connect="/events/{{ channel.id }}"{% endblock %}
 {% block main %}
-  <aside class="sidebar">
-    <div class="sidebar-head">
-      <h2>{{ current_group.group.name if current_group else "바로채널" }}</h2>
-      {% if is_manager %}<a href="/groups/{{ channel.group_id }}/settings" aria-label="그룹 설정">{{ icon("settings") }}</a>{% endif %}
-    </div>
-    {% if current_group %}
-    {% for type, label in CHANNEL_TYPES.items() %}
-      {% set rows = current_group.channels|selectattr("type", "equalto", type)|list %}
-      {% if rows %}
-      <h3>{{ label }}</h3>
-      <ul>
-        {% for row in rows %}
-        <li><a href="/channels/{{ row.id }}"{% if row.id == channel.id %} aria-current="page"{% endif %}>{{ row.name }}</a></li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-    {% endfor %}
-    {% endif %}
-  </aside>
+  {% include "partials/channel_sidebar.html" %}
   <main class="timeline-pane">
     <header class="channel-head">
       <a class="head-back" href="/" aria-label="홈으로">{{ icon("back") }}</a>
@@ -34,15 +16,33 @@
       {% with views = pinned %}{% include "partials/pinned.html" %}{% endwith %}
     </section>
     <div class="scroll" id="timeline-scroll">
+      {% if channel.type == "doc" %}
+      <ul class="list doc-list" id="documents">
+        {% for row in documents %}
+        <li class="row">
+          <a class="list-link" href="/posts/{{ row.post_id }}">{{ row.title }}</a>
+          <span class="spacer"></span>
+          <span class="muted">{{ row.author_name }} · {{ row.updated_at|time }}{% if row.versions %} · 버전 {{ row.versions + 1 }}{% endif %}</span>
+        </li>
+        {% else %}
+        <li class="muted">아직 문서가 없습니다.</li>
+        {% endfor %}
+      </ul>
+      {% else %}
       <div id="timeline" sse-swap="ch-{{ channel.id }}" hx-swap="beforeend">
         {% include "partials/post_page.html" %}
       </div>
+      {% endif %}
     </div>
     {% if can_post %}
     <form class="composer js-reset" hx-post="/channels/{{ channel.id }}/posts" hx-encoding="multipart/form-data"
           hx-target="#timeline" hx-swap="beforeend">
       {% include "partials/composer_fields.html" %}
     </form>
+    {% elif access.write and channel.type == "doc" %}
+    <p class="notice"><a class="button primary" href="/channels/{{ channel.id }}/docs/new">새 문서</a></p>
+    {% elif access.write and channel.type == "vote" %}
+    <p class="notice"><a class="button primary" href="/channels/{{ channel.id }}/polls/new">새 투표</a></p>
     {% elif access.write and channel.type == "approval" %}
     <p class="notice"><a class="button primary" href="/channels/{{ channel.id }}/approvals/new">새 결재</a></p>
     {% elif access.write and channel.type != "talk" %}
@@ -51,5 +51,5 @@
     <p class="notice">이 채널의 쓰기 권한이 없습니다.</p>
     {% endif %}
   </main>
-  <aside class="thread-pane" id="thread" aria-label="쓰레드"></aside>
+  {% include "partials/thread_pane.html" %}
 {% endblock %}

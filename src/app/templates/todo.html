@@ -35,6 +35,8 @@
 {% endif %}
 {{ rows("처리할 결재", turns, "처리할 결재가 없어요.") }}
 {{ rows("검토할 결재", reviews, "검토할 결재가 없어요.") }}
+{% if receiving %}{{ rows("수신 대기", receiving, "") }}{% endif %}
+{% if references %}{{ rows("참조 문서", references, "") }}{% endif %}
 {% if notices %}
 <section class="section">
   <h2>결재 결과 <span class="muted">{{ notices|length }}건</span></h2>

@@ -12,7 +12,9 @@ from sqlalchemy.orm import aliased
 from app.core.config import get_settings
 from app.models import (
     Approval,
+    ApprovalDispatch,
     ApprovalLineTemplate,
+    ApprovalReference,
     ApprovalReview,
     ApprovalStep,
     Channel,
@@ -22,7 +24,7 @@ from app.models import (
     User,
     UserDepartment,
 )
-from app.models.approval import REVIEW_LABELS, STATUS_LABELS
+from app.models.approval import RECEIPT_LABELS, REVIEW_LABELS, STATUS_LABELS
 
 RETENTION_YEARS = 5
 
@@ -72,6 +74,7 @@ def can_cancel(approval: Approval, steps: Sequence[ApprovalStep], user_id: int) 
 def can_withdraw(approval: Approval, user_id: int, now: datetime) -> bool:
     return (
         approval.status == "in_progress"
+        and not approval.received
         and approval.drafter_id == user_id
         and approval.submitted_at is not None
         and now < approval.submitted_at + timedelta(hours=get_settings().withdraw_hours)
@@ -174,6 +177,36 @@ class LineRow:
         )
 
 
+async def dispatch_statuses(
+    session: AsyncSession, approval_ids: Sequence[int]
+) -> dict[int, list[tuple[str, str]]]:
+    """F-68: 발신한 문서에는 수신 채널별 처리 상태만 보여준다."""
+    received = aliased(Approval)
+    rows = await session.execute(
+        select(ApprovalDispatch.source_approval_id, Channel.name, received.status)
+        .join(Channel, Channel.id == ApprovalDispatch.target_channel_id)
+        .join(received, received.id == ApprovalDispatch.received_approval_id)
+        .where(ApprovalDispatch.source_approval_id.in_(approval_ids))
+        .order_by(ApprovalDispatch.id)
+    )
+    statuses: dict[int, list[tuple[str, str]]] = defaultdict(list)
+    for source_id, channel_name, state in rows:
+        statuses[source_id].append((channel_name, RECEIPT_LABELS.get(state, state)))
+    return statuses
+
+
+async def dispatch_origins(session: AsyncSession, approval_ids: Sequence[int]) -> dict[int, str]:
+    source = aliased(Approval)
+    rows = await session.execute(
+        select(ApprovalDispatch.received_approval_id, Channel.name)
+        .join(source, source.id == ApprovalDispatch.source_approval_id)
+        .join(Post, Post.id == source.post_id)
+        .join(Channel, Channel.id == Post.channel_id)
+        .where(ApprovalDispatch.received_approval_id.in_(approval_ids))
+    )
+    return dict(rows.all())
+
+
 async def line_rows(session: AsyncSession, channel_id: int) -> list[LineRow]:
     rows = (
         await session.execute(
@@ -203,6 +236,124 @@ def steps_for(line: Sequence[int], drafter_id: int) -> list[int]:
     return [approver_id for approver_id in line[:-1] if approver_id != drafter_id] + [line[-1]]
 
 
+async def default_line(
+    session: AsyncSession, channel_id: int, department_id: int | None, drafter_id: int
+) -> list[int]:
+    """기안 소속의 등록 승인선을 기안자 기준으로 정리한 결재선. 작성 화면의 기본값이다."""
+    return steps_for(await resolve_line(session, channel_id, department_id), drafter_id)
+
+
+MAX_PLAN_PEOPLE = 20
+
+
+class PlanError(ValueError):
+    """결재선·검토자·참조자 지정이 규칙에 맞지 않을 때. 메시지를 그대로 사용자에게 보여 준다.
+
+    stale은 저장한 뒤에 사람이 비활성이 되는 등 상황이 바뀐 경우다.
+    """
+
+    def __init__(self, message: str, stale: bool = False) -> None:
+        super().__init__(message)
+        self.stale = stale
+
+
+@dataclass
+class Plan:
+    """상신할 때 적용할 결재선(1차~최종 승인자 순서), 검토자, 참조자."""
+
+    line: list[int]
+    reviewers: list[int] = field(default_factory=list)
+    references: list[int] = field(default_factory=list)
+
+    def as_json(self) -> dict[str, list[int]]:
+        return {"line": self.line, "reviewers": self.reviewers, "references": self.references}
+
+
+def _unique(ids: Iterable[int]) -> list[int]:
+    return list(dict.fromkeys(ids))
+
+
+async def check_plan(
+    session: AsyncSession,
+    channel_id: int,
+    department_id: int | None,
+    drafter_id: int,
+    line: Sequence[int],
+    reviewers: Iterable[int] = (),
+    references: Iterable[int] = (),
+) -> Plan:
+    """기안자는 결재선을 자유롭게 고친다. 다만 다음은 지킨다.
+
+    - 기안자는 0단계이므로 결재선에 넣지 않는다. 등록 승인선의 최종 승인자가 기안자일 때만
+      기본값 그대로 마지막에 둘 수 있다(상신한 뒤 직접 최종 승인).
+    - 등록 승인선이 없을 때만 승인자 없이 상신해 기안자가 최종 승인한다. 등록 승인선이 있으면
+      승인자를 한 명 이상 둔다.
+    - 한 사람은 승인자, 검토자, 참조자 중 하나만 맡는다.
+    """
+    if len(line) != len(set(line)):
+        raise PlanError("결재선에 같은 사람이 두 번 있습니다.")
+    reviewers, references = _unique(reviewers), _unique(references)
+    if max(len(line), len(reviewers), len(references)) > MAX_PLAN_PEOPLE:
+        raise PlanError(
+            f"결재선, 검토자, 참조자는 각각 {MAX_PLAN_PEOPLE}명까지 지정할 수 있습니다."
+        )
+    default = await default_line(session, channel_id, department_id, drafter_id)
+    line = list(line)
+    if not line:
+        if default != [drafter_id]:
+            raise PlanError("승인자를 한 명 이상 지정해 주세요.")
+        line = [drafter_id]
+    if drafter_id in line[:-1]:
+        raise PlanError("기안자는 결재선에 넣을 수 없습니다.")
+    if line[-1] == drafter_id and default[-1:] != [drafter_id]:
+        raise PlanError("기안자는 최종 승인자가 될 수 없습니다.")
+    taken = set(line) | {drafter_id}
+    if taken & set(reviewers):
+        raise PlanError("기안자와 승인자는 검토자로 지정할 수 없습니다.")
+    if (taken | set(reviewers)) & set(references):
+        raise PlanError("기안자, 승인자, 검토자는 참조자로 지정할 수 없습니다.")
+    everyone = set(line) | set(reviewers) | set(references)
+    active = set(
+        await session.scalars(select(User.id).where(User.id.in_(everyone), User.status == "active"))
+    )
+    if active != everyone:
+        raise PlanError(
+            "결재선이나 검토자·참조자에 없거나 비활성인 사용자가 있습니다. "
+            "고친 뒤 다시 시도해 주세요.",
+            stale=True,
+        )
+    return Plan(line, reviewers, references)
+
+
+async def stored_plan(session: AsyncSession, approval: Approval, channel_id: int) -> Plan:
+    """임시저장에 저장된 지정. 없으면 기안 소속의 등록 승인선이다."""
+    saved = approval.plan or {}
+    if "line" in saved:
+        return Plan(
+            list(saved["line"]), list(saved.get("reviewers", [])), list(saved.get("references", []))
+        )
+    line = await default_line(session, channel_id, approval.department_id, approval.drafter_id)
+    return Plan(line)
+
+
+async def people_rows(session: AsyncSession, user_ids: Sequence[int]) -> list[dict[str, object]]:
+    """화면에서 고른 순서대로 사람 정보를 돌려준다. 작성 화면의 초기값에 쓴다."""
+    users = {
+        user.id: user for user in await session.scalars(select(User).where(User.id.in_(user_ids)))
+    }
+    departments = await primary_departments(session, user_ids)
+    return [
+        {
+            "id": user_id,
+            "name": users[user_id].name,
+            "email": users[user_id].email,
+            "department": departments.get(user_id, ""),
+        }
+        for user_id in user_ids
+        if user_id in users
+    ]
+
+
 @dataclass
 class StepView:
     label: str
@@ -227,6 +378,7 @@ class ApprovalView:
     status_label: str
     steps: list[StepView] = field(default_factory=list)
     reviews: list[ReviewView] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
     preview: list[str] = field(default_factory=list)
     can_submit: bool = False
     can_approve: bool = False
@@ -237,6 +389,10 @@ class ApprovalView:
     can_review: bool = False
     can_publish: bool = False
     can_resubmit: bool = False
+    can_receive: bool = False
+    can_dispatch: bool = False
+    origin: str | None = None
+    dispatches: list[tuple[str, str]] = field(default_factory=list)
 
 
 def step_label(step_no: int, last: int) -> str:
@@ -251,12 +407,18 @@ async def _names(session: AsyncSession, user_ids: Iterable[int]) -> dict[int, st
 
 
 async def approval_views(
-    session: AsyncSession, post_ids: Sequence[int], channel_id: int, user_id: int
+    session: AsyncSession,
+    post_ids: Sequence[int],
+    channel_id: int,
+    user_id: int,
+    can_write_here: bool = False,
 ) -> dict[int, ApprovalView]:
     approvals = list(await session.scalars(select(Approval).where(Approval.post_id.in_(post_ids))))
     if not approvals:
         return {}
     ids = [approval.id for approval in approvals]
+    dispatches = await dispatch_statuses(session, ids)
+    origins = await dispatch_origins(session, ids)
     steps: dict[int, list[ApprovalStep]] = defaultdict(list)
     for step in await session.scalars(
         select(ApprovalStep).where(ApprovalStep.approval_id.in_(ids)).order_by(ApprovalStep.step_no)
@@ -269,25 +431,40 @@ async def approval_views(
         .order_by(ApprovalReview.reviewer_id)
     ):
         reviews[review.approval_id].append(review)
+    references: dict[int, list[int]] = defaultdict(list)
+    for approval_id, reference_id in await session.execute(
+        select(ApprovalReference.approval_id, ApprovalReference.user_id)
+        .where(ApprovalReference.approval_id.in_(ids))
+        .order_by(ApprovalReference.user_id)
+    ):
+        references[approval_id].append(reference_id)
 
     now = datetime.now(UTC)
     views: dict[int, ApprovalView] = {}
     for approval in approvals:
         own_steps, own_reviews = steps[approval.id], reviews[approval.id]
         view = ApprovalView(approval, STATUS_LABELS[approval.status])
-        if approval.status == "draft":
+        view.origin = origins.get(approval.id)
+        view.dispatches = dispatches.get(approval.id, [])
+        if approval.status == "receiving":
+            # 수신 완료 체크는 그 채널의 읽기와 쓰기가 모두 있어야 한다.
+            view.can_receive = can_write_here
+        elif approval.status == "draft":
             if approval.drafter_id == user_id:
                 view.can_submit = True
-                line = await resolve_line(session, channel_id, approval.department_id)
-                approvers = steps_for(line, user_id)
-                names = await _names(session, approvers)
-                view.preview = [names.get(item, "") for item in approvers]
+                plan = await stored_plan(session, approval, channel_id)
+                names = await _names(session, plan.line + plan.references)
+                view.preview = [names.get(item, "") for item in plan.line]
+                view.references = [names.get(item, "") for item in plan.references]
         else:
+            own_references = references[approval.id]
             names = await _names(
                 session,
                 [step.approver_id for step in own_steps]
-                + [review.reviewer_id for review in own_reviews],
+                + [review.reviewer_id for review in own_reviews]
+                + own_references,
             )
+            view.references = [names.get(item, "") for item in own_references]
             last = max(step.step_no for step in own_steps)
             view.steps = [
                 StepView(
@@ -319,6 +496,7 @@ async def approval_views(
                 review.reviewer_id == user_id for review in own_reviews
             )
             view.can_publish = can_publish(approval, own_steps, user_id)
+            view.can_dispatch = approval.status == "approved" and approval.drafter_id == user_id
             view.can_resubmit = (
                 approval.status in ("rejected", "withdrawn", "discarded")
                 and approval.drafter_id == user_id
@@ -388,6 +566,22 @@ async def my_reviews(session: AsyncSession, user_id: int) -> list[ApprovalRow]:
             ApprovalReview.result.is_(None),
         )
         .order_by(Approval.submitted_at),
+    )
+
+
+async def my_references(session: AsyncSession, user_id: int) -> list[ApprovalRow]:
+    """참조로 지정되었고 아직 열어 보지 않은 결재. 열면 목록과 개수에서 빠진다."""
+    return await _rows(
+        session,
+        _row_query()
+        .join(ApprovalReference, ApprovalReference.approval_id == Approval.id)
+        .where(
+            ApprovalReference.user_id == user_id,
+            ApprovalReference.read_at.is_(None),
+            Approval.status != "draft",
+            Post.deleted_at.is_(None),
+        )
+        .order_by(Approval.submitted_at.desc()),
     )
 
 

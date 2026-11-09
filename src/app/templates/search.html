@@ -1,0 +1,31 @@
+{% extends "page.html" %}
+{% block title %}검색 · 바로채널{% endblock %}
+{% block content %}
+<h1>검색</h1>
+<form class="row search-form" action="/search" method="get" role="search">
+  <input type="search" name="q" value="{{ q }}" required maxlength="100" placeholder="찾을 내용" aria-label="찾을 내용">
+  {% if group %}<input type="hidden" name="group_id" value="{{ group.id }}">{% endif %}
+  {% if scope_channel %}<input type="hidden" name="channel_id" value="{{ scope_channel.id }}">{% endif %}
+  <button class="primary">검색</button>
+</form>
+<p class="muted">
+  범위: {% if scope_channel %}# {{ scope_channel.name }}{% elif group %}{{ group.name }} 그룹{% else %}전체{% endif %}
+  {% if (group or scope_channel) and q %} · <a href="/search?q={{ q|urlencode }}">전체에서 찾기</a>{% endif %}
+</p>
+{% if q %}
+<section class="section">
+  <h2>결과 <span class="muted">{{ results|length }}건{% if results|length >= 50 %} (최근 50건){% endif %}</span></h2>
+  <ul class="list search-results">
+    {% for r in results %}
+    <li>
+      <a class="list-link" href="{{ r.href }}">{{ r.title or r.snippet }}</a>
+      {% if r.title %}<p class="muted">{{ r.snippet }}</p>{% endif %}
+      <small class="muted"># {{ r.channel_name }} · {{ r.author_name }} · {{ r.created_at|time }}{% if r.is_reply %} · 답글{% endif %}</small>
+    </li>
+    {% else %}
+    <li class="muted">찾은 글이 없습니다.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "channel_page.html" %}
+{% from "partials/icons.html" import icon %}
+{% from "partials/editor.html" import editor %}
+{% block title %}새 투표 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/channels/{{ channel.id }}">{{ icon("back") }}{{ channel.name }}</a>
+<h1>새 투표</h1>
+<form class="section stack" hx-post="/channels/{{ channel.id }}/polls" hx-encoding="multipart/form-data">
+  {{ editor("안건", rows=5, required=true, mentions="/channels/%d/mention-candidates" % channel.id) }}
+  <fieldset class="stack poll-options">
+    <legend>선택지</legend>
+    {% for _ in range(4) %}<input name="options" maxlength="200" placeholder="선택지 {{ loop.index }}"{% if loop.index <= min_options %} required{% endif %} aria-label="선택지 {{ loop.index }}">{% endfor %}
+    <button type="button" class="link js-add-option">선택지 추가</button>
+  </fieldset>
+  <label>마감 시각 <input type="datetime-local" name="closes_at" required></label>
+  <label class="check"><input type="checkbox" name="multi_select" value="true"> 여러 개 선택</label>
+  <label class="check"><input type="checkbox" name="anonymous" value="true"> 익명 (누가 무엇을 골랐는지 보이지 않음)</label>
+  <label>결과 공개
+    <select name="result_open">
+      <option value="immediate">즉시 공개</option>
+      <option value="after_close">마감 후 공개</option>
+    </select>
+  </label>
+  <label class="file-button">파일 첨부<input type="file" name="files" multiple></label>
+  <span class="file-names"></span>
+  <button class="primary">올리기</button>
+</form>
+{% endblock %}

@@ -335,3 +335,17 @@ def test_markdown_cache_keeps_sanitizing_long_and_repeated_text() -> None:
     payload = "<script>x</script>"
     assert render_markdown(payload) == render_markdown(payload)
     assert "<script" not in render_markdown(payload + "a" * CACHE_MAX_LENGTH)
+
+
+@pytest.mark.parametrize(
+    ("kind", "path"),
+    [("approval", "approvals/new"), ("doc", "docs/new"), ("vote", "polls/new")],
+)
+def test_authoring_pages_have_write_and_preview_tabs(kind: str, path: str) -> None:
+    owner = add_user("owner")
+    channel = add_channel(add_group(owner), type=kind)
+    grant(channel, owner, **FULL)
+    page = browser(owner).get(f"/channels/{channel.id}/{path}").text
+    assert page.count('data-editor-tab="write"') == 1
+    assert page.count('data-editor-tab="preview"') == 1
+    assert 'id="editor-body" name="body"' in page

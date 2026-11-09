@@ -1,10 +1,12 @@
 {% extends "page.html" %}
 {% from "partials/icons.html" import icon %}
+{% from "partials/import_form.html" import import_form %}
 {% block title %}조직 관리 · 바로채널{% endblock %}
 {% block content %}
 <a class="back" href="/more">{{ icon("back") }}전체</a>
 <h1>조직 관리</h1>
 <div id="org-message" role="alert"></div>
+{{ import_form("/admin/org/import", "/admin/org/export.xlsx", "org-import-result", "소속과 사용자를 엑셀 파일로 추가하거나 바꿉니다.") }}
 <section class="section">
 <h2>소속</h2>
 <ul class="list">

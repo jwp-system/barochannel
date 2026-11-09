@@ -1,6 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse
 from sqlalchemy import delete, select
 
@@ -11,12 +21,15 @@ from app.core.security import hash_password
 from app.core.templating import fragment, templates
 from app.models import Department, User, UserDepartment
 from app.services.audit import record_audit
+from app.services.bulk_import import ORG_SPECS, download, export_org, import_org, run_import
+from app.services.spreadsheet import MAX_FILE_BYTES
 
 router = APIRouter(
     prefix="/admin", tags=["org"], include_in_schema=False, dependencies=[Depends(require_admin)]
 )
 
 REFRESH = {"HX-Refresh": "true"}
+ImportMode = Annotated[str, Form(alias="mode", pattern="^(check|apply)$")]
 
 
 def tree_rows(departments: list[Department]) -> list[tuple[Department, int]]:
@@ -203,3 +216,20 @@ async def update_user(
     )
     await session.commit()
     return Response(headers=REFRESH)
+
+
+@router.get("/org/export.xlsx")
+async def org_export(session: SessionDep) -> Response:
+    return download(await export_org(session), "barochannel-org")
+
+
+@router.post("/org/import", response_class=HTMLResponse)
+async def org_import(
+    session: SessionDep,
+    admin: AdminUser,
+    file: Annotated[UploadFile, File()],
+    mode: ImportMode = "check",
+) -> HTMLResponse:
+    data = await file.read(MAX_FILE_BYTES + 1)
+    report = await run_import(session, admin, data, ORG_SPECS, import_org, mode == "apply")
+    return fragment("partials/import_report.html", report=report)

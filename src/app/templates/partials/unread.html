@@ -1,0 +1,4 @@
+{# 새 글 수 표시. 실시간으로 바뀌므로 0이어도 자리를 두고 숨긴다. #}
+{% macro unread_badge(count, channel_id) -%}
+<b class="unread-badge" data-unread="{{ channel_id }}"{% if not count %} hidden{% endif %}><span class="sr-only">새 글 </span><span class="unread-number">{{ "99+" if count > 99 else count }}</span></b>
+{%- endmacro %}

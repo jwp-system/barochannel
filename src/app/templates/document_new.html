@@ -1,0 +1,16 @@
+{% extends "channel_page.html" %}
+{% from "partials/icons.html" import icon %}
+{% from "partials/editor.html" import editor %}
+{% block title %}새 문서 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/channels/{{ channel.id }}">{{ icon("back") }}{{ channel.name }}</a>
+<h1>새 문서</h1>
+<form class="section stack" hx-post="/channels/{{ channel.id }}/docs" hx-encoding="multipart/form-data">
+  <label>제목 <input name="title" required maxlength="200"></label>
+  {{ editor("본문", rows=14, mentions="/channels/%d/mention-candidates" % channel.id) }}
+  <label class="file-button">파일 첨부<input type="file" name="files" multiple></label>
+  <span class="file-names"></span>
+  <p class="muted">등록한 문서는 삭제할 수 없습니다. 고치면 이전 버전이 남습니다.</p>
+  <button class="primary">등록</button>
+</form>
+{% endblock %}

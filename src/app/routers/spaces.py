@@ -1,16 +1,27 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionDep
 from app.core.deps import CurrentUser, current_user
-from app.core.templating import templates
+from app.core.templating import fragment, templates
 from app.models import (
     CHANNEL_TYPES,
     Channel,
+    ChannelDispatchTarget,
     Department,
     GroupManager,
     PermissionGrant,
@@ -20,13 +31,22 @@ from app.models import (
 from app.routers.org import tree_rows
 from app.services.approvals import line_rows, stalled_documents
 from app.services.audit import record_audit
+from app.services.bulk_import import download, run_import
+from app.services.channel_import import (
+    CHANNEL_SPECS,
+    channel_importer,
+    export_channels,
+    managed_group_ids,
+)
 from app.services.permissions import PERMISSIONS, normalize_grant
+from app.services.spreadsheet import MAX_FILE_BYTES
 
 router = APIRouter(tags=["spaces"], include_in_schema=False, dependencies=[Depends(current_user)])
 
 REFRESH = {"HX-Refresh": "true"}
 Setting = Literal["", "allow", "deny"]
 NameField = Annotated[str, Form(min_length=1, max_length=100)]
+ImportMode = Annotated[str, Form(alias="mode", pattern="^(check|apply)$")]
 
 
 async def managed_group(session: AsyncSession, group_id: int, user: User) -> WorkspaceGroup:
@@ -45,6 +65,30 @@ async def managed_channel(session: AsyncSession, channel_id: int, user: User) ->
         raise HTTPException(status.HTTP_404_NOT_FOUND, "채널을 찾을 수 없습니다.")
     await managed_group(session, channel.group_id, user)
     return channel
+
+
+async def dispatch_context(session: AsyncSession, channel: Channel) -> dict[str, object]:
+    if channel.type != "approval":
+        return {"dispatch_targets": [], "dispatch_choices": []}
+    current = (
+        await session.execute(
+            select(Channel, ChannelDispatchTarget.auto_send)
+            .join(ChannelDispatchTarget, ChannelDispatchTarget.target_channel_id == Channel.id)
+            .where(ChannelDispatchTarget.source_channel_id == channel.id)
+            .order_by(Channel.name)
+        )
+    ).all()
+    taken = {row.id for row, _ in current} | {channel.id}
+    choices = await session.execute(
+        select(Channel, WorkspaceGroup.name)
+        .join(WorkspaceGroup, WorkspaceGroup.id == Channel.group_id)
+        .where(Channel.type == "approval", WorkspaceGroup.archived_at.is_(None))
+        .order_by(WorkspaceGroup.name, Channel.name)
+    )
+    return {
+        "dispatch_targets": current,
+        "dispatch_choices": [(row, name) for row, name in choices if row.id not in taken],
+    }
 
 
 async def grant_context(session: AsyncSession, scope_type: str, scope_id: int) -> dict[str, object]:
@@ -84,6 +128,33 @@ async def groups_page(request: Request, session: SessionDep, user: CurrentUser) 
     return templates.TemplateResponse(
         request, "groups.html", {"user": user, "groups": list(groups), "active_tab": "more"}
     )
+
+
+async def own_group_ids(session: AsyncSession, user: User) -> set[int]:
+    group_ids = await managed_group_ids(session, user)
+    if not group_ids:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "그룹 관리자만 할 수 있습니다.")
+    return group_ids
+
+
+@router.get("/groups/export.xlsx")
+async def channels_export(session: SessionDep, user: CurrentUser) -> Response:
+    group_ids = await own_group_ids(session, user)
+    return download(await export_channels(session, group_ids), "barochannel-channels")
+
+
+@router.post("/groups/import", response_class=HTMLResponse)
+async def channels_import(
+    session: SessionDep,
+    user: CurrentUser,
+    file: Annotated[UploadFile, File()],
+    mode: ImportMode = "check",
+) -> HTMLResponse:
+    group_ids = await own_group_ids(session, user)
+    data = await file.read(MAX_FILE_BYTES + 1)
+    importer = channel_importer(group_ids)
+    report = await run_import(session, user, data, CHANNEL_SPECS, importer, mode == "apply")
+    return fragment("partials/import_report.html", report=report)
 
 
 @router.get("/groups/{group_id}/settings", response_class=HTMLResponse)
@@ -184,6 +255,7 @@ async def channel_settings(
             "lines": lines,
             "line_data": {str(row.department_id): row.approvers for row in lines},
             "stalled": await stalled_documents(session, Channel.id == channel.id),
+            **await dispatch_context(session, channel),
             "talk_channels": list(talk_channels),
             **await grant_context(session, "channel", channel.id),
         },

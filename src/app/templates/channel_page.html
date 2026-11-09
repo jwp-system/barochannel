@@ -1,0 +1,8 @@
+{# 채널 안의 글 보기·작성 화면. 채널 화면과 같이 왼쪽에 채널 목록, 오른쪽에 쓰레드 창을 둔다. #}
+{% extends "layout.html" %}
+{% block app_attrs %}{% if v is defined and live_channel|default(false) %} hx-ext="sse" sse-connect="/events/{{ channel.id }}"{% endif %}{% endblock %}
+{% block main %}
+{% include "partials/channel_sidebar.html" %}
+<main class="page-scroll"><div class="page">{% block content %}{% endblock %}</div></main>
+{% if v is defined %}{% include "partials/thread_pane.html" %}{% endif %}
+{% endblock %}

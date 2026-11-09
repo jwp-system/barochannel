@@ -1,0 +1,17 @@
+<dl class="audit-fields">
+  <dt>기록 번호</dt><dd>#{{ log.id }}</dd>
+  <dt>시각</dt><dd>{{ log.created_at.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S") }}</dd>
+  <dt>동작</dt><dd>{{ action_label(log.action) }} <code>{{ log.action }}</code></dd>
+  {% for label, value in detail.fields %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+</dl>
+{% if detail.changes %}
+<table class="audit-changes">
+  <thead><tr><th scope="col">항목</th><th scope="col">변경 전</th><th scope="col">변경 후</th></tr></thead>
+  <tbody>
+    {% for change in detail.changes %}
+    <tr{% if change.changed %} class="changed"{% endif %}><th scope="row">{{ change.label }}</th><td>{{ change.before }}</td><td>{{ change.after }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<details class="audit-raw"><summary>원본 기록</summary><pre>{{ detail.raw }}</pre></details>

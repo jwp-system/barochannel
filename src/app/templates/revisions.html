@@ -1,0 +1,17 @@
+{% extends "channel_page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}{{ post.title }} 이전 버전 · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/posts/{{ post.id }}">{{ icon("back") }}{{ post.title }}</a>
+<h1>이전 버전</h1>
+<p class="muted">현재 버전은 {{ current }}입니다. 이전 버전은 보기만 할 수 있습니다.</p>
+{% for row in versions %}
+<article class="card">
+  <header><strong>버전 {{ row.version }}</strong><span class="muted">{{ row.replaced_by }}님이 {{ row.replaced_at|time }}에 고치기 전</span></header>
+  {% if row.title %}<h3 class="approval-title">{{ row.title }}</h3>{% endif %}
+  <div class="body">{{ row.html|safe }}</div>
+</article>
+{% else %}
+<p class="muted">이전 버전이 없습니다.</p>
+{% endfor %}
+{% endblock %}

@@ -32,6 +32,8 @@ class User(Base):
 
     # 요청마다 current_user가 정한다. 저장하지 않으며 기본값은 관리 권한 없음이다.
     admin_mode = False
+    # 화면 상단에 보여 줄 주 소속 이름. 요청마다 current_user가 채운다.
+    department_name = ""
 
     @property
     def is_active(self) -> bool:

@@ -3,7 +3,17 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -11,9 +21,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionDep
 from app.core.deps import AdminUser, require_admin
-from app.core.templating import templates
+from app.core.templating import fragment, templates
 from app.models import GroupManager, User, WorkspaceGroup
 from app.services.audit import record_audit
+from app.services.bulk_import import (
+    GROUP_SPECS,
+    download,
+    export_groups,
+    import_groups,
+    run_import,
+)
+from app.services.spreadsheet import MAX_FILE_BYTES
 
 router = APIRouter(
     prefix="/admin", tags=["groups"], include_in_schema=False, dependencies=[Depends(require_admin)]
@@ -21,6 +39,7 @@ router = APIRouter(
 
 REFRESH = {"HX-Refresh": "true"}
 NameField = Annotated[str, Form(min_length=1, max_length=100)]
+ImportMode = Annotated[str, Form(alias="mode", pattern="^(check|apply)$")]
 
 
 async def get_group(session: AsyncSession, group_id: int) -> WorkspaceGroup:
@@ -55,6 +74,23 @@ async def create_group(session: SessionDep, user: AdminUser, name: NameField) ->
     )
     await session.commit()
     return Response(headers={"HX-Redirect": f"/admin/groups/{group.id}"})
+
+
+@router.get("/groups/export.xlsx")
+async def groups_export(session: SessionDep) -> Response:
+    return download(await export_groups(session), "barochannel-groups")
+
+
+@router.post("/groups/import", response_class=HTMLResponse)
+async def groups_import(
+    session: SessionDep,
+    admin: AdminUser,
+    file: Annotated[UploadFile, File()],
+    mode: ImportMode = "check",
+) -> HTMLResponse:
+    data = await file.read(MAX_FILE_BYTES + 1)
+    report = await run_import(session, admin, data, GROUP_SPECS, import_groups, mode == "apply")
+    return fragment("partials/import_report.html", report=report)
 
 
 @router.get("/groups/{group_id}", response_class=HTMLResponse)

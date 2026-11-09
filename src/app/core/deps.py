@@ -1,9 +1,11 @@
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionDep
-from app.models import User
+from app.models import Department, User, UserDepartment
 from app.services.admin import (
     PIN_CHANGE_PATH,
     admin_mode_active,
@@ -25,6 +27,18 @@ class PinChangeRequired(Exception):
     pass
 
 
+async def primary_department_name(session: AsyncSession, user_id: int) -> str:
+    """주 소속이 없으면 소속 중 하나를 쓴다."""
+    name = await session.scalar(
+        select(Department.name)
+        .join(UserDepartment, UserDepartment.department_id == Department.id)
+        .where(UserDepartment.user_id == user_id)
+        .order_by(UserDepartment.is_primary.desc(), Department.id)
+        .limit(1)
+    )
+    return name or ""
+
+
 async def current_user(request: Request, session: SessionDep) -> User:
     user_id = request.session.get("user_id")
     user = await session.get(User, user_id) if user_id else None
@@ -34,6 +48,7 @@ async def current_user(request: Request, session: SessionDep) -> User:
     if must_change_pin(user) and request.url.path != PIN_CHANGE_PATH:
         raise PinChangeRequired
     user.admin_mode = admin_mode_active(request.session, user)
+    user.department_name = await primary_department_name(session, user.id)
     return user
 
 

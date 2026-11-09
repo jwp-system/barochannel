@@ -1,0 +1,8 @@
+{% extends "channel_page.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}{{ channel.name }} · 바로채널{% endblock %}
+{% block content %}
+<a class="back" href="/channels/{{ channel.id }}">{{ icon("back") }}{{ channel.name }}</a>
+{% include "partials/post_card.html" %}
+{% if show_thread %}<div hidden data-auto-thread="/posts/{{ v.post.id }}/thread"></div>{% endif %}
+{% endblock %}

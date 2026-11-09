@@ -1,24 +1,25 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Literal
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import SessionDep
 from app.core.deps import AuthzDep, CurrentUser, current_user
-from app.core.templating import format_time, templates
+from app.core.templating import templates
 from app.models import (
     Approval,
+    ApprovalDispatch,
     ApprovalLineTemplate,
+    ApprovalReference,
     ApprovalReview,
     ApprovalStep,
-    Attachment,
     Channel,
+    ChannelDispatchTarget,
     Department,
     Notification,
     Post,
@@ -39,13 +40,31 @@ from app.routers.posts import (
 )
 from app.routers.spaces import REFRESH, managed_channel
 from app.services import approvals as rules
-from app.services.approvals import resolve_line, retain_until, search_people, steps_for
+from app.services.approvals import (
+    Plan,
+    PlanError,
+    check_plan,
+    default_line,
+    people_rows,
+    resolve_line,
+    retain_until,
+    search_people,
+    steps_for,
+    stored_plan,
+)
 from app.services.audit import record_audit
+from app.services.dispatch import (
+    auto_dispatch,
+    available_targets,
+    copy_attachments,
+    document_body,
+    receivers,
+    send,
+)
 from app.services.navigation import build_navigation
 from app.services.permissions import NO_ACCESS, Authorizer, ChannelAccess, can_view_replies
 from app.services.post_views import build_views
 from app.services.realtime import Event, publish, publish_counts
-from app.services.storage import copy_file
 
 router = APIRouter(
     tags=["approvals"], include_in_schema=False, dependencies=[Depends(current_user)]
@@ -161,25 +180,34 @@ async def own_departments(session: AsyncSession, user_id: int) -> list[Departmen
     return list(rows)
 
 
-async def copy_attachments(session: AsyncSession, source_post_id: int, target_post_id: int) -> None:
-    """글마다 파일을 따로 둔다. 한쪽을 지워도 다른 쪽의 보존에 영향이 없다."""
-    rows = await session.scalars(
-        select(Attachment).where(
-            Attachment.post_id == source_post_id, Attachment.deleted_at.is_(None)
-        )
-    )
-    for row in list(rows):
-        key = f"attachments/{uuid4().hex}"
-        await copy_file(row.storage_key, key)
-        session.add(
-            Attachment(
-                post_id=target_post_id,
-                file_name=row.file_name,
-                storage_key=key,
-                size=row.size,
-                mime=row.mime,
-            )
-        )
+IdList = Annotated[list[int] | None, Form()]
+# 작성 화면의 지정 편집기가 보내는 표시. 있으면 결재선·검토자·참조자 목록을 그대로 쓴다.
+PlanMarker = Annotated[str | None, Form(alias="plan")]
+
+
+async def planner_context(session: AsyncSession, channel: Channel, plan: Plan) -> dict[str, object]:
+    return {
+        "data": {
+            "line": await people_rows(session, plan.line),
+            "reviewers": await people_rows(session, plan.reviewers),
+            "references": await people_rows(session, plan.references),
+        },
+        "people_url": f"/channels/{channel.id}/approval-people",
+        "default_url": f"/channels/{channel.id}/default-line",
+    }
+
+
+def plan_failed(error: PlanError) -> HTTPException:
+    if error.stale:
+        return conflict(str(error))
+    return HTTPException(status.HTTP_400_BAD_REQUEST, str(error))
+
+
+async def drafting_channel(session: AsyncSession, authz: Authorizer, channel_id: int) -> Channel:
+    channel, access = await channel_access(session, authz, channel_id)
+    if channel.type != "approval" or not access.write:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "결재를 올릴 수 없습니다.")
+    return channel
 
 
 @router.get("/channels/{channel_id}/approvals/new", response_class=HTMLResponse)
@@ -199,6 +227,10 @@ async def new_approval(
         source = await reference_document(session, authz, reference)
         body = (await session.get(Post, source.post_id)).body_md
         title = source.title
+    departments = await own_departments(session, authz.user.id)
+    line = await default_line(
+        session, channel.id, departments[0].id if departments else None, authz.user.id
+    )
     return templates.TemplateResponse(
         request,
         "approval_new.html",
@@ -207,10 +239,11 @@ async def new_approval(
             "navigation": await build_navigation(authz),
             "active_tab": "home",
             "channel": channel,
-            "departments": await own_departments(session, authz.user.id),
+            "departments": departments,
             "body": body,
             "title_text": title or "",
             "reference": reference,
+            "planner": await planner_context(session, channel, Plan(line)),
         },
     )
 
@@ -225,6 +258,10 @@ async def create_approval(
     department_id: Annotated[int | None, Form()] = None,
     reference_post_id: Annotated[int | None, Form()] = None,
     files: Files = None,
+    plan: PlanMarker = None,
+    line_ids: IdList = None,
+    reviewer_ids: IdList = None,
+    reference_ids: IdList = None,
 ) -> Response:
     files = files or []
     channel, access = await channel_access(session, authz, channel_id)
@@ -239,6 +276,20 @@ async def create_approval(
         await reference_document(session, authz, reference_post_id)
     else:
         require_content(body, files)
+    chosen = None
+    if plan is not None:
+        try:
+            chosen = await check_plan(
+                session,
+                channel.id,
+                department_id,
+                authz.user.id,
+                line_ids or [],
+                reviewer_ids or [],
+                reference_ids or [],
+            )
+        except PlanError as error:
+            raise plan_failed(error) from error
 
     post = Post(channel_id=channel.id, author_id=authz.user.id, body_md=body, is_draft=True)
     session.add(post)
@@ -250,6 +301,7 @@ async def create_approval(
             department_id=department_id,
             title=title.strip(),
             reference_post_id=reference_post_id,
+            plan=chosen.as_json() if chosen else None,
         )
     )
     await store_attachments(session, post, files)
@@ -269,6 +321,17 @@ async def approval_page(
     (view,) = await build_views(session, [post], authz, channel, access)
     if view.approval is None:
         raise not_found()
+    dispatch_targets = (
+        await available_targets(session, view.approval.approval, channel.id)
+        if view.approval.can_dispatch
+        else []
+    )
+    planner = None
+    if view.approval.can_submit:
+        planner = await planner_context(
+            session, channel, await stored_plan(session, view.approval.approval, channel.id)
+        )
+    await mark_reference_read(session, view.approval.approval, authz.user.id)
     targets: list[Channel] = []
     if view.approval.can_publish:
         for row in await session.scalars(
@@ -286,10 +349,33 @@ async def approval_page(
             "channel": channel,
             "v": view,
             "publish_targets": targets,
+            "dispatch_targets": dispatch_targets,
             "default_target": channel.default_publish_channel_id,
             "show_thread": can_view_replies(access, post, authz.user.id) and not post.is_draft,
+            "planner": planner,
+            # 채널 실시간 연결은 채널에 들어갈 수 있는 사람만 연다.
+            # 문서만 맡은 사람(참조자, 검토자 등)은 새로고침으로 본다.
+            "live_channel": (await authz.access(channel)).can_enter,
         },
     )
+
+
+async def mark_reference_read(session: AsyncSession, approval: Approval, user_id: int) -> None:
+    """참조자가 문서를 열면 내 할 일의 참조 목록과 개수에서 뺀다."""
+    if approval.status == "draft":
+        return
+    result = await session.execute(
+        update(ApprovalReference)
+        .where(
+            ApprovalReference.approval_id == approval.id,
+            ApprovalReference.user_id == user_id,
+            ApprovalReference.read_at.is_(None),
+        )
+        .values(read_at=datetime.now(UTC))
+    )
+    if result.rowcount:
+        await publish_counts(session, {user_id})
+        await session.commit()
 
 
 @router.post("/approvals/{post_id}/submit", response_class=HTMLResponse)
@@ -297,8 +383,12 @@ async def submit(
     post_id: int,
     session: SessionDep,
     authz: AuthzDep,
-    reviewer_ids: Annotated[list[int] | None, Form()] = None,
+    reviewer_ids: IdList = None,
+    plan: PlanMarker = None,
+    line_ids: IdList = None,
+    reference_ids: IdList = None,
 ) -> HTMLResponse:
+    """기안자 승인. 지정 편집기가 보낸 목록이 있으면 그것을, 없으면 임시저장의 지정을 쓴다."""
     doc = await locked_document(session, authz, post_id)
     approval, user = doc.approval, authz.user
     if approval.drafter_id != user.id:
@@ -306,28 +396,29 @@ async def submit(
     if approval.status != "draft":
         raise conflict("이미 상신한 결재입니다.")
 
-    line = await resolve_line(session, doc.channel.id, approval.department_id)
-    approvers = steps_for(line, user.id)
-    active = set(
-        await session.scalars(
-            select(User.id).where(User.id.in_(approvers), User.status == "active")
+    if plan is not None:
+        line, reviewer_list, reference_list = (
+            line_ids or [],
+            reviewer_ids or [],
+            reference_ids or [],
         )
-    )
-    if set(approvers) - active:
-        raise conflict("승인선에 비활성 사용자가 있습니다. 승인선을 고친 뒤 상신해 주세요.")
-
-    reviewers = set(reviewer_ids or [])
-    if reviewers & ({user.id} | set(approvers)):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "기안자와 승인자는 검토자로 지정할 수 없습니다."
+    else:
+        saved = await stored_plan(session, approval, doc.channel.id)
+        line, reference_list = saved.line, saved.references
+        reviewer_list = reviewer_ids if reviewer_ids is not None else saved.reviewers
+    try:
+        chosen = await check_plan(
+            session,
+            doc.channel.id,
+            approval.department_id,
+            user.id,
+            line,
+            reviewer_list,
+            reference_list,
         )
-    found = set(
-        await session.scalars(
-            select(User.id).where(User.id.in_(reviewers), User.status == "active")
-        )
-    )
-    if found != reviewers:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "검토자를 찾을 수 없습니다.")
+    except PlanError as error:
+        raise plan_failed(error) from error
+    approvers, reviewers, references = chosen.line, set(chosen.reviewers), chosen.references
 
     now = datetime.now(UTC)
     session.add(
@@ -348,6 +439,11 @@ async def submit(
         ApprovalReview(approval_id=approval.id, reviewer_id=reviewer_id)
         for reviewer_id in reviewers
     )
+    session.add_all(
+        ApprovalReference(approval_id=approval.id, user_id=reference_id)
+        for reference_id in references
+    )
+    approval.plan = chosen.as_json()
     approval.status = "in_progress"
     approval.current_step = 1
     approval.submitted_at = now
@@ -361,11 +457,14 @@ async def submit(
         "submit",
         approvers=approvers,
         reviewers=sorted(reviewers),
+        references=references,
         department_id=approval.department_id,
+        line_changed=approvers
+        != await default_line(session, doc.channel.id, approval.department_id, user.id),
     )
     # 임시저장은 다른 사람의 화면에 없었으므로 새 글로도 알린다.
     await publish(session, Event("created", doc.channel.id, doc.post.id, user.id))
-    return await respond(session, authz, doc, {approvers[0], *reviewers})
+    return await respond(session, authz, doc, {approvers[0], *reviewers, *references})
 
 
 @router.post("/approvals/{post_id}/approve", response_class=HTMLResponse)
@@ -383,6 +482,7 @@ async def approve(post_id: int, session: SessionDep, authz: AuthzDep) -> HTMLRes
     audit(session, doc, user, "approve", step_no=step.step_no)
     if rules.is_final_turn(approval, doc.steps):
         close(session, doc, "approved", user, now)
+        await auto_dispatch(session, approval, doc.post, doc.steps)
         return await respond(session, authz, doc, {approval.drafter_id})
     approval.current_step += 1
     upcoming = rules.current(approval, doc.steps)
@@ -478,6 +578,140 @@ async def discard(
     return Response(headers=REFRESH)
 
 
+@router.post("/approvals/{post_id}/receive", response_class=HTMLResponse)
+async def receive(post_id: int, session: SessionDep, authz: AuthzDep) -> HTMLResponse:
+    """F-66, F-67: 먼저 처리된 한 명만 성립한다. 체크한 사람이 기안자가 되고 기안자 승인이다."""
+    doc = await locked_document(session, authz, post_id)
+    approval, user = doc.approval, authz.user
+    if approval.status != "receiving":
+        raise conflict("이미 수신 완료된 문서입니다.")
+    access = await authz.access(doc.channel)
+    if not (access.read and access.write):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "읽기와 쓰기 권한이 있는 사람만 수신할 수 있습니다."
+        )
+    departments = await own_departments(session, user.id)
+    department_id = departments[0].id if departments else None
+    line = await resolve_line(session, doc.channel.id, department_id)
+    if not line:
+        raise conflict("승인선이 등록되지 않은 소속은 수신 완료를 체크할 수 없습니다.")
+    approvers = steps_for(line, user.id)
+    active = set(
+        await session.scalars(
+            select(User.id).where(User.id.in_(approvers), User.status == "active")
+        )
+    )
+    if set(approvers) - active:
+        raise conflict("승인선에 비활성 사용자가 있습니다. 승인선을 고친 뒤 체크해 주세요.")
+
+    now = datetime.now(UTC)
+    eligible = await receivers(session, doc.channel)
+    session.add(
+        ApprovalStep(
+            approval_id=approval.id,
+            step_no=0,
+            step_type="draft",
+            approver_id=user.id,
+            status="approved",
+            acted_at=now,
+        )
+    )
+    session.add_all(
+        ApprovalStep(approval_id=approval.id, step_no=number, approver_id=approver_id)
+        for number, approver_id in enumerate(approvers, start=1)
+    )
+    approval.status = "in_progress"
+    approval.current_step = 1
+    approval.submitted_at = now
+    approval.drafter_id = user.id
+    approval.department_id = department_id
+    dispatch = await session.scalar(
+        select(ApprovalDispatch).where(ApprovalDispatch.received_approval_id == approval.id)
+    )
+    dispatch.received_by = user.id
+    dispatch.received_at = now
+    audit(session, doc, user, "receive", approvers=approvers, department_id=department_id)
+    source = await session.scalar(
+        select(Post)
+        .join(Approval, Approval.post_id == Post.id)
+        .where(Approval.id == dispatch.source_approval_id)
+    )
+    await publish(session, Event("updated", source.channel_id, source.id, user.id))
+    await session.flush()
+    return await respond(session, authz, doc, {approvers[0], *eligible})
+
+
+@router.post("/approvals/{post_id}/dispatch")
+async def dispatch(
+    post_id: int,
+    session: SessionDep,
+    authz: AuthzDep,
+    channel_ids: Annotated[list[int] | None, Form()] = None,
+) -> Response:
+    """F-65: 기안자가 남은 지정 채널을 골라 보낸다. 여러 채널에 한 번에 보낼 수 있다."""
+    doc = await locked_document(session, authz, post_id)
+    approval = doc.approval
+    if approval.status != "approved" or approval.drafter_id != authz.user.id:
+        raise conflict("승인이 끝난 결재를 기안자만 발신할 수 있습니다.")
+    chosen = set(channel_ids or [])
+    targets = {
+        channel.id: channel
+        for channel, _ in await available_targets(session, approval, doc.channel.id)
+    }
+    if not chosen or not chosen <= set(targets):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "지정된 채널 중 아직 보내지 않은 채널만 고를 수 있습니다."
+        )
+    for channel_id in sorted(chosen):
+        await send(session, approval, doc.post, doc.steps, targets[channel_id], authz.user.id)
+    await publish(session, Event("updated", doc.channel.id, doc.post.id, authz.user.id))
+    await session.commit()
+    return Response(headers=REFRESH)
+
+
+@router.post("/channels/{channel_id}/dispatch-targets")
+async def save_dispatch_target(
+    channel_id: int,
+    session: SessionDep,
+    user: CurrentUser,
+    target_channel_id: Annotated[int, Form()],
+    auto_send: Annotated[bool, Form()] = False,
+    remove: Annotated[bool, Form()] = False,
+) -> Response:
+    """F-64: 발신 채널의 그룹 관리자가 정한다. 수신 채널은 결재 채널만 된다."""
+    channel = await managed_channel(session, channel_id, user)
+    target = await session.get(Channel, target_channel_id)
+    if channel.type != "approval" or target is None or target.type != "approval":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "결재 채널끼리만 지정할 수 있습니다.")
+    if target.id == channel.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "자기 채널로는 발신할 수 없습니다.")
+    row = await session.get(ChannelDispatchTarget, (channel.id, target.id))
+    before = None if row is None else {"auto_send": row.auto_send}
+    if remove:
+        if row is not None:
+            await session.delete(row)
+    elif row is None:
+        session.add(
+            ChannelDispatchTarget(
+                source_channel_id=channel.id, target_channel_id=target.id, auto_send=auto_send
+            )
+        )
+    else:
+        row.auto_send = auto_send
+    record_audit(
+        session,
+        actor_id=user.id,
+        action="channel.dispatch_target",
+        target_type="channel",
+        target_id=channel.id,
+        target_channel_id=target.id,
+        before=before,
+        after=None if remove else {"auto_send": auto_send},
+    )
+    await session.commit()
+    return Response(headers=REFRESH)
+
+
 @router.post("/approvals/{post_id}/review", response_class=HTMLResponse)
 async def review(
     post_id: int,
@@ -497,19 +731,6 @@ async def review(
     return await respond(session, authz, doc, set())
 
 
-def publish_body(doc: Document, names: dict[int, str]) -> str:
-    last = max(step.step_no for step in doc.steps)
-    line = " → ".join(
-        f"{rules.step_label(step.step_no, last)} {names.get(step.approver_id, '')} "
-        f"({format_time(step.acted_at)})"
-        for step in doc.steps
-    )
-    return (
-        f"## {doc.approval.title}\n\n{doc.post.body_md}\n\n---\n\n"
-        f"승인선: {line}\n\n[원본 결재](/approvals/{doc.post.id})"
-    )
-
-
 @router.post("/approvals/{post_id}/publish", response_class=HTMLResponse)
 async def publish_approval(
     post_id: int,
@@ -527,16 +748,8 @@ async def publish_approval(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "쓰기 권한이 있는 소통 채널만 고를 수 있습니다."
         )
-    names = dict(
-        (
-            await session.execute(
-                select(User.id, User.name).where(
-                    User.id.in_([step.approver_id for step in doc.steps])
-                )
-            )
-        ).all()
-    )
-    published = Post(channel_id=target.id, author_id=user.id, body_md=publish_body(doc, names))
+    body = await document_body(session, approval, doc.post, doc.steps)
+    published = Post(channel_id=target.id, author_id=user.id, body_md=body)
     session.add(published)
     await session.flush()
     if include_attachments:
@@ -583,22 +796,32 @@ async def approver_candidates(
     return await search_people(session, q)
 
 
-@router.get("/approvals/{post_id}/reviewer-candidates")
-async def reviewer_candidates(
-    post_id: int,
+@router.get("/channels/{channel_id}/approval-people")
+async def approval_people(
+    channel_id: int,
     session: SessionDep,
     authz: AuthzDep,
     q: Annotated[str, Query(max_length=100)] = "",
 ) -> list[dict[str, object]]:
-    """상신 전 기안자만 쓴다. 승인선에 있는 사람은 고를 수 없게 표시한다."""
-    post, _, channel, _ = await post_context(session, authz, post_id)
-    approval = await session.scalar(select(Approval).where(Approval.post_id == post.id))
-    if approval is None or approval.drafter_id != authz.user.id or approval.status != "draft":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "검토자를 지정할 수 없습니다.")
-    line = await resolve_line(session, channel.id, approval.department_id)
-    approvers = set(steps_for(line, authz.user.id))
-    people = await search_people(session, q, exclude=[authz.user.id])
-    return [{**row, "blocked": "승인선에 있음" if row["id"] in approvers else ""} for row in people]
+    """결재를 올릴 수 있는 사람이 결재선·검토자·참조자를 고를 때 쓴다. 자신은 빠진다."""
+    await drafting_channel(session, authz, channel_id)
+    return await search_people(session, q, exclude=[authz.user.id])
+
+
+@router.get("/channels/{channel_id}/default-line")
+async def default_line_people(
+    channel_id: int,
+    session: SessionDep,
+    authz: AuthzDep,
+    department_id: Annotated[int | None, Query()] = None,
+) -> list[dict[str, object]]:
+    """기안 소속을 바꾸면 그 소속의 등록 승인선으로 결재선을 다시 채운다."""
+    channel = await drafting_channel(session, authz, channel_id)
+    own = {row.id for row in await own_departments(session, authz.user.id)}
+    if department_id is not None and department_id not in own:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "자신의 소속만 지정할 수 있습니다.")
+    line = await default_line(session, channel.id, department_id, authz.user.id)
+    return await people_rows(session, line)
 
 
 @router.post("/channels/{channel_id}/approval-lines")

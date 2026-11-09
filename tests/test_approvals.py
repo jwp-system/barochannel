@@ -71,8 +71,7 @@ def set_line(channel, department, *approvers: User) -> None:
     )
 
 
-@pytest.fixture
-def office() -> Office:
+def make_office() -> Office:
     manager = add_user("manager")
     channel = add_channel(add_group(manager), "지출결의", "approval")
     team = add_department("영업팀")
@@ -84,6 +83,11 @@ def office() -> Office:
     grant(channel, reader, read="allow", reply_read="allow")
     set_line(channel, team, first, final)
     return Office(channel, team, manager, drafter, first, final, reader)
+
+
+@pytest.fixture
+def office() -> Office:
+    return make_office()
 
 
 def draft(signed_in, office: Office, body="본문", **data) -> int:
@@ -1108,33 +1112,3 @@ async def _rename_user(user: User, name: str) -> None:
     async with SessionLocal() as session:
         (await session.get(User, user.id)).name = name
         await session.commit()
-
-
-# 검토자 선택
-
-
-def test_reviewer_search_flags_line_members_and_hides_drafter(office: Office) -> None:
-    add_user("candidate")
-    author = browser(office.drafter)
-    post = draft(author, office)
-    rows = author.get(f"/approvals/{post}/reviewer-candidates").json()
-    blocked = {row["name"]: row["blocked"] for row in rows}
-    assert blocked["candidate"] == "" and blocked["first"] == "승인선에 있음"
-    assert blocked["final"] == "승인선에 있음" and "drafter" not in blocked
-
-
-def test_reviewer_search_only_for_drafter_before_submit(office: Office) -> None:
-    author = browser(office.drafter)
-    post = draft(author, office)
-    url = f"/approvals/{post}/reviewer-candidates"
-    assert browser(office.reader).get(url).status_code == 404
-    author.post(f"/approvals/{post}/submit")
-    assert author.get(url).status_code == 403
-    assert browser(office.first).get(url).status_code == 403
-
-
-def test_submit_page_no_longer_lists_every_user(office: Office) -> None:
-    add_user("everyone-list")
-    author = browser(office.drafter)
-    page = author.get(f"/approvals/{draft(author, office)}").text
-    assert "reviewer-picker" in page and "everyone-list" not in page

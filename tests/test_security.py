@@ -25,7 +25,13 @@ from tests.conftest import (
     run,
 )
 
-PUBLIC = {("GET", "/login"), ("POST", "/login"), ("POST", "/logout"), ("GET", "/healthz")}
+PUBLIC = {
+    ("GET", "/login"),
+    ("POST", "/login"),
+    ("POST", "/logout"),
+    ("GET", "/healthz"),
+    ("GET", "/favicon.ico"),
+}
 DOC_PATHS = {"/docs", "/docs/oauth2-redirect", "/openapi.json"}
 
 

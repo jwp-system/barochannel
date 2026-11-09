@@ -1,5 +1,6 @@
 {% extends "page.html" %}
 {% from "partials/icons.html" import icon %}
+{% from "partials/import_form.html" import import_form %}
 {% block title %}내가 관리하는 그룹 · 바로채널{% endblock %}
 {% block content %}
 <a class="back" href="/more">{{ icon("back") }}전체</a>
@@ -11,4 +12,5 @@
   <p class="muted menu-empty">관리하는 그룹이 없습니다.</p>
   {% endfor %}
 </section>
+{% if groups %}{{ import_form("/groups/import", "/groups/export.xlsx", "channels-import-result", "관리하는 그룹의 채널과 권한을 엑셀 파일로 추가하거나 바꿉니다.") }}{% endif %}
 {% endblock %}

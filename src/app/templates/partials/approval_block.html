@@ -1,5 +1,7 @@
 {% set a = v.approval %}
 <div class="approval">
+  {% if a.origin %}<p class="muted">{{ a.origin }} 채널에서 발신한 문서입니다. 본문은 수정할 수 없고 의견은 쓰레드로 남깁니다.</p>{% endif %}
+  {% if a.approval.status == "receiving" %}<p class="muted">수신 완료를 체크한 사람이 기안자가 되고, 그 사람 소속의 승인선으로 결재합니다.</p>{% endif %}
   {% if a.approval.reference_post_id %}<p class="muted">참조 문서: <a href="/approvals/{{ a.approval.reference_post_id }}">열기</a></p>{% endif %}
   {% if a.steps %}
   <ol class="steps">
@@ -19,15 +21,25 @@
   </ul>
   {% endif %}
   {% if a.can_submit %}
-    <p class="muted">적용될 승인선: {{ a.preview|join(" → ") }}</p>
+    <p class="muted">적용될 승인선: {{ a.preview|join(" → ") }}{% if a.references %} · 참조: {{ a.references|join(", ") }}{% endif %}</p>
+  {% elif a.references %}
+  <ul class="reviews">
+    {% for name in a.references %}<li class="tag">참조 {{ name }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if a.dispatches %}
+  <ul class="reviews">
+    {% for name, label in a.dispatches %}<li class="tag">발신 # {{ name }}: {{ label }}</li>{% endfor %}
+  </ul>
   {% endif %}
   <div class="approval-actions">
+    {% if a.can_receive %}<button class="primary" hx-post="/approvals/{{ v.post.id }}/receive" hx-confirm="수신 완료를 체크하면 기안자가 되어 결재를 시작합니다. 취소할 수 없습니다.">수신 완료 체크</button>{% endif %}
     {% if a.can_approve %}<button class="primary" hx-post="/approvals/{{ v.post.id }}/approve">승인</button>{% endif %}
     {% if a.waiting_review %}<button class="primary" disabled>승인 (검토 대기 중)</button>{% endif %}
     {% if a.can_cancel %}<button hx-post="/approvals/{{ v.post.id }}/cancel" hx-confirm="내 승인을 취소할까요?">승인 취소</button>{% endif %}
     {% if a.can_withdraw %}<button hx-post="/approvals/{{ v.post.id }}/withdraw" hx-confirm="기안을 취소할까요? 되돌릴 수 없습니다.">기안 취소</button>{% endif %}
     {% if a.can_resubmit %}<a class="button" href="/channels/{{ v.post.channel_id }}/approvals/new?reference={{ v.post.id }}">참조 상신</a>{% endif %}
-    {% if a.can_submit or a.can_publish %}<a class="button" href="/approvals/{{ v.post.id }}">{{ "상신하러 가기" if a.can_submit else "소통 채널에 게시" }}</a>{% endif %}
+    {% if a.can_submit or a.can_publish or a.can_dispatch %}<a class="button" href="/approvals/{{ v.post.id }}">{{ "상신하러 가기" if a.can_submit else "게시·발신" }}</a>{% endif %}
   </div>
   {% if a.can_review %}
   <div class="approval-actions">

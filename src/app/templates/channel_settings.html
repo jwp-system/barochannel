@@ -56,6 +56,34 @@
     <button class="primary">승인선 저장</button>
   </form>
 </section>
+<section class="section stack">
+  <h2>발신 대상</h2>
+  <p class="muted">승인이 끝난 결재를 보낼 수 있는 결재 채널입니다. 자동 발신 채널에는 최종 승인 즉시 보냅니다. 나머지는 기안자가 골라 보냅니다.</p>
+  {% if dispatch_targets %}
+  <ul class="list">
+    {% for row, auto in dispatch_targets %}
+    <li class="row">
+      <strong># {{ row.name }}</strong>
+      <span class="spacer"></span>
+      <form class="row" hx-post="/channels/{{ channel.id }}/dispatch-targets">
+        <input type="hidden" name="target_channel_id" value="{{ row.id }}">
+        <label class="check"><input type="checkbox" name="auto_send" value="true"{% if auto %} checked{% endif %} onchange="this.form.requestSubmit()"> 자동 발신</label>
+      </form>
+      <button class="link" hx-post="/channels/{{ channel.id }}/dispatch-targets" hx-vals='{{ {"target_channel_id": row.id, "remove": "true"}|tojson }}'>빼기</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if dispatch_choices %}
+  <form class="row wrap" hx-post="/channels/{{ channel.id }}/dispatch-targets">
+    <select name="target_channel_id" aria-label="수신 채널">
+      {% for row, group_name in dispatch_choices %}<option value="{{ row.id }}">{{ group_name }} · # {{ row.name }}</option>{% endfor %}
+    </select>
+    <label class="check"><input type="checkbox" name="auto_send" value="true"> 자동 발신</label>
+    <button>추가</button>
+  </form>
+  {% endif %}
+</section>
 <form class="section stack" hx-post="/channels/{{ channel.id }}/approval-settings">
   <h2>기본 형식과 게시</h2>
   <label>기본 형식 (마크다운)<textarea name="template" rows="6" maxlength="50000">{{ channel.approval_template_md or "" }}</textarea></label>

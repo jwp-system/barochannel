@@ -1,0 +1,20 @@
+<div class="import-report{% if report.errors %} has-errors{% endif %}">
+  {% if report.errors %}
+  <p class="message"><strong>문제가 {{ report.errors|length }}건 있어 아무것도 반영하지 않았습니다.</strong> 고친 뒤 다시 올려 주세요.</p>
+  <ul class="import-lines">
+    {% for line in report.errors[:200] %}<li>{{ line }}</li>{% endfor %}
+    {% if report.errors|length > 200 %}<li class="muted">그 밖에 {{ report.errors|length - 200 }}건</li>{% endif %}
+  </ul>
+  {% else %}
+  <p class="import-status"><strong>{% if report.applied %}반영했습니다.{% else %}문제가 없습니다. '반영'을 누르면 아래 내용이 적용됩니다.{% endif %}</strong>
+    {% for label, count in report.counts.items() %}{{ label }} {{ count }}건{% if not loop.last %} · {% endif %}{% else %}바꿀 내용이 없습니다.{% endfor %}
+  </p>
+  {% if report.changes %}
+  <ul class="import-lines">
+    {% for line in report.changes[:200] %}<li>{{ line }}</li>{% endfor %}
+    {% if report.changes|length > 200 %}<li class="muted">그 밖에 {{ report.changes|length - 200 }}건</li>{% endif %}
+  </ul>
+  {% endif %}
+  {% if report.applied %}<p><a href="" class="button">목록 새로 보기</a></p>{% endif %}
+  {% endif %}
+</div>
