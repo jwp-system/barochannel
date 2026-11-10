@@ -1,0 +1,15 @@
+{# 명령어가 열 업무 화면. 화면은 templates/works/{화면}/screen.toml에 정의돼 있다. #}
+<label>화면
+  <select name="target" required>
+    {% if not selected %}<option value="">골라 주세요</option>{% endif %}
+    {% for screen in work_screens %}
+    <optgroup label="{{ screen.title }} ({{ screen.name }})">
+      {% for page, title in screen.pages.items() %}
+      {% set value = screen.name ~ "/" ~ page %}
+      <option value="{{ value }}"{% if value == selected %} selected{% endif %}>{{ title }} · {{ value }}</option>
+      {% endfor %}
+    </optgroup>
+    {% endfor %}
+    {% if selected and selected not in work_screen_values %}<option value="{{ selected }}" selected>{{ selected }} (화면이 없습니다)</option>{% endif %}
+  </select>
+</label>

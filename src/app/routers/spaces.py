@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.db import SessionDep
 from app.core.deps import CurrentUser, current_user
 from app.core.templating import fragment, templates
@@ -26,6 +27,7 @@ from app.models import (
     GroupManager,
     PermissionGrant,
     User,
+    WorkCommand,
     WorkspaceGroup,
 )
 from app.routers.org import tree_rows
@@ -40,6 +42,7 @@ from app.services.channel_import import (
 )
 from app.services.permissions import PERMISSIONS, normalize_grant
 from app.services.spreadsheet import MAX_FILE_BYTES
+from app.services.work import screens
 
 router = APIRouter(tags=["spaces"], include_in_schema=False, dependencies=[Depends(current_user)])
 
@@ -257,6 +260,20 @@ async def channel_settings(
             "stalled": await stalled_documents(session, Channel.id == channel.id),
             **await dispatch_context(session, channel),
             "talk_channels": list(talk_channels),
+            "work_commands": list(
+                await session.scalars(
+                    select(WorkCommand)
+                    .where(WorkCommand.channel_id == channel.id)
+                    .order_by(WorkCommand.archived_at.is_not(None), WorkCommand.name)
+                )
+            )
+            if channel.type == "work"
+            else [],
+            "work_screens": list(screens().values()),
+            "work_screen_values": [
+                f"{screen.name}/{page}" for screen in screens().values() for page in screen.pages
+            ],
+            "allowed_hosts": sorted(get_settings().integration_allowed_hosts),
             **await grant_context(session, "channel", channel.id),
         },
     )

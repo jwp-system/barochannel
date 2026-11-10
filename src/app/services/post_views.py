@@ -18,6 +18,7 @@ from app.services.permissions import (
     can_write_reply,
 )
 from app.services.polls import PollView, poll_views
+from app.services.work import WorkView, work_views
 
 EMOJIS = ("👍", "❤️", "😄", "🎉", "👀", "✅")
 PAGE_SIZE = 50
@@ -50,6 +51,7 @@ class PostView:
     can_ack: bool = False
     approval: ApprovalView | None = None
     poll: PollView | None = None
+    work: WorkView | None = None
 
     @property
     def is_reply(self) -> bool:
@@ -145,6 +147,9 @@ async def build_views(
         else {}
     )
 
+    # 업무 메시지는 원글과 쓰레드 답글 어디에나 있다.
+    works = await work_views(session, ids) if channel.type == "work" else {}
+
     is_manager = await authz.is_manager(channel)
     views = []
     for post in posts:
@@ -160,14 +165,16 @@ async def build_views(
         views.append(
             PostView(
                 post=post,
-                author_name=authors.get(post.author_id, ""),
+                author_name=(post.id in works and works[post.id].author_name)
+                or authors.get(post.author_id, ""),
                 body_html=None if deleted else render_markdown(post.body_md),
                 attachments=[] if deleted else attachments[post.id],
                 reactions=[
                     reactions[post.id][emoji] for emoji in EMOJIS if emoji in reactions[post.id]
                 ],
                 reply_count=replies,
-                can_edit=own and can_change and not deleted,
+                # 업무 메시지는 남긴 그대로 둔다. 지우는 것만 일반 글과 같다.
+                can_edit=own and can_change and not deleted and post.id not in works,
                 can_delete=own
                 and can_change
                 and not deleted
@@ -189,6 +196,7 @@ async def build_views(
                 and any(target == user.id and not done for target, _, done in acks[post.id]),
                 approval=approvals.get(post.id),
                 poll=None if deleted else polls.get(post.id),
+                work=None if deleted else works.get(post.id),
             )
         )
     return views

@@ -1,6 +1,6 @@
 """채널별 새 글 개수. 채널의 글만 세고 답글은 세지 않는다.
 
-소통·문서·투표 채널만 센다. 결재는 내 할 일에 처리할 건이 따로 나온다.
+소통·문서·투표·업무 채널만 센다. 결재는 내 할 일에 처리할 건이 따로 나온다.
 읽기 권한이 없는 채널(쓰기만 되는 건의함 등)은 남의 글이 있다는 사실이 새지 않도록 세지 않는다.
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import SessionLocal
 from app.models import ChannelRead, Post
 
-COUNTED_TYPES = ("talk", "doc", "vote")
+COUNTED_TYPES = ("talk", "doc", "vote", "work")
 
 
 def _channel_posts():

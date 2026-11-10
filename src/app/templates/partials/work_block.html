@@ -1,0 +1,17 @@
+{# 업무 메시지. 화면이나 외부 시스템이 남긴 그대로 보이고 고치지 않는다. 값은 글자로만 보여준다. #}
+{% set w = v.work %}
+<div class="work-block">
+  <p class="work-command"><span class="tag">/{{ w.command_name }}</span> {{ w.command_label }}</p>
+  <p class="work-text">{{ w.message.text }}</p>
+  {% if w.message.fields %}
+  <dl class="work-summary">
+    {% for item in w.message.fields %}<div><dt>{{ item.label }}</dt><dd>{{ item.value or "-" }}</dd></div>{% endfor %}
+  </dl>
+  {% endif %}
+  {% if w.can_detail or w.message.link_url %}
+  <div class="row wrap work-links">
+    {% if w.can_detail %}<a class="button soft work-open" href="/posts/{{ v.post.parent_post_id or v.post.id }}#detail-{{ v.post.id }}" data-work-frame="/works/messages/{{ v.post.id }}/detail" data-work-title="{{ w.command_label }}">상세 보기</a>{% endif %}
+    {% if w.message.link_url %}<a class="button soft" href="{{ w.message.link_url }}" target="_blank" rel="noopener noreferrer">{{ w.message.link_label }}</a>{% endif %}
+  </div>
+  {% endif %}
+</div>

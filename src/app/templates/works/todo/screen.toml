@@ -1,0 +1,19 @@
+# 샘플 할 일 시스템(samples/todo_api.py)의 업무 화면.
+title = "할 일"
+description = "샘플 할 일 시스템에서 할 일을 등록하고 찾는다"
+detail = "detail"
+size = "medium"
+
+# 화면이 부를 수 있는 외부 API. 경로는 명령어의 연동 주소 뒤에 붙는다. {이름}은 경로 한 마디다.
+api = [
+  "GET options",
+  "GET ",
+  "POST ",
+  "GET {id}",
+  "POST {id}/actions/{key}",
+]
+
+# 명령어가 고를 수 있는 시작 화면과 표시 이름.
+[pages]
+index = "할 일 등록"
+find = "할 일 찾기"

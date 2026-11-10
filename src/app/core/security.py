@@ -7,6 +7,8 @@ from fastapi import HTTPException, Request, status
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CSRF_HEADER = "X-CSRF-Token"
+# 세션 없이 서명으로 인증하는 외부 시스템용 주소. 쿠키를 쓰지 않으므로 CSRF 대상이 아니다.
+CSRF_EXEMPT_PREFIXES = ("/hooks/",)
 
 _hasher = PasswordHasher()
 _dummy_hash = _hasher.hash("dummy-password-for-constant-time")
@@ -39,7 +41,7 @@ def csrf_token(request: Request) -> str:
 
 async def verify_csrf(request: Request) -> None:
     """앱 전체 의존성으로 걸어 변경 요청이 빠지지 않게 한다."""
-    if request.method in SAFE_METHODS:
+    if request.method in SAFE_METHODS or request.url.path.startswith(CSRF_EXEMPT_PREFIXES):
         return
     expected = request.session.get("csrf")
     received = request.headers.get(CSRF_HEADER)

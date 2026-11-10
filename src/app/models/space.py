@@ -14,7 +14,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 
-CHANNEL_TYPES = {"talk": "소통", "vote": "투표", "doc": "문서", "approval": "결재"}
+CHANNEL_TYPES = {
+    "talk": "소통",
+    "vote": "투표",
+    "doc": "문서",
+    "approval": "결재",
+    "work": "업무",
+}
 
 
 class WorkspaceGroup(Base):
@@ -38,7 +44,7 @@ class GroupManager(Base):
 class Channel(Base):
     __tablename__ = "channel"
     __table_args__ = (
-        CheckConstraint("type IN ('talk', 'vote', 'doc', 'approval')", name="type"),
+        CheckConstraint("type IN ('talk', 'vote', 'doc', 'approval', 'work')", name="type"),
         CheckConstraint("pin_limit >= 0", name="pin_limit"),
     )
 

@@ -15,3 +15,6 @@ wheels/
 # Tool caches
 .pytest_cache/
 .ruff_cache/
+
+# 샘플 할 일 시스템의 SQLite 파일
+*.db

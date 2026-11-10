@@ -10,6 +10,8 @@ os.environ.update(
     BARO_S3_BUCKET="barochannel-test",
     BARO_ADMIN_EMAIL="admin@test.local",
     BARO_ADMIN_PASSWORD="test-password",
+    BARO_INTEGRATION_ALLOWED_HOSTS="todo.test,127.0.0.1:8100",
+    TODO_DB=":memory:",
 )
 
 import asyncpg  # noqa: E402

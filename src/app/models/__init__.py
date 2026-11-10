@@ -26,6 +26,7 @@ from app.models.space import (
     PermissionGrant,
     WorkspaceGroup,
 )
+from app.models.work import WorkCommand, WorkMessage
 
 __all__ = [
     "Approval",
@@ -54,5 +55,7 @@ __all__ = [
     "Reaction",
     "User",
     "UserDepartment",
+    "WorkCommand",
+    "WorkMessage",
     "WorkspaceGroup",
 ]

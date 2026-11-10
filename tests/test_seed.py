@@ -12,6 +12,7 @@ from app.models import (
     PermissionGrant,
     Post,
     User,
+    WorkCommand,
     WorkspaceGroup,
 )
 from app.seed import EMAIL_DOMAIN, SAMPLE_PASSWORD, seed
@@ -52,7 +53,7 @@ def sign_in(login: str) -> Browser:
 def test_seed_builds_every_group_with_a_manager() -> None:
     apply_seed()
     assert count(WorkspaceGroup) == 3 and count(GroupManager) == 3
-    assert count(User) == 10 and count(Channel) == 11
+    assert count(User) == 10 and count(Channel) == 12
     assert count(PermissionGrant) == 17
     assert count(Post) > 15 and count(Attachment) == 2
 
@@ -141,3 +142,22 @@ def test_seed_uses_department_abbreviations_and_production() -> None:
     assert groups == {"전사", "영업", "생산"}
     assert {"생산본부", "생산팀", "품질팀"} <= departments
     assert not any("개발" in name for name in departments | groups)
+
+
+def test_seed_work_channel_calls_sample_todo() -> None:
+    """영업 그룹의 할 일 채널에 샘플 할 일 시스템을 부르는 /add와 /find가 있다."""
+    apply_seed()
+
+    async def load() -> tuple[str, set[tuple[str, str, str]]]:
+        async with SessionLocal() as session:
+            channel = await session.scalar(select(Channel).where(Channel.name == "할 일"))
+            commands = await session.scalars(
+                select(WorkCommand).where(WorkCommand.channel_id == channel.id)
+            )
+            return channel.type, {
+                (row.name, row.screen, row.page, row.endpoint_url) for row in commands
+            }
+
+    url = "http://127.0.0.1:8100/todos"
+    assert run(load()) == ("work", {("add", "todo", "index", url), ("find", "todo", "find", url)})
+    assert access("sa2", "할 일").write

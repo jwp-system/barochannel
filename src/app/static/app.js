@@ -754,6 +754,161 @@
   document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".approval-planner").forEach(setupApprovalPlanner);
   });
+  // 업무 채널. 명령어나 상세 보기는 업무 화면(templates/works)을 팝업 안의 iframe으로 연다.
+  // 화면은 postMessage로 닫기(baro:close), 남김(baro:posted), 입력 중(baro:dirty)을 알린다.
+  const workModal = document.getElementById("work-modal");
+  let workFrame = null;
+  let workDirty = false;
+
+  function openWorkFrame(url, size, title) {
+    const body = document.getElementById("work-modal-body");
+    workFrame = document.createElement("iframe");
+    workFrame.className = "work-frame";
+    workFrame.src = url;
+    workFrame.title = title || "업무 화면";
+    body.replaceChildren(workFrame);
+    workModal.dataset.size = size || "medium";
+    workDirty = false;
+    if (!workModal.open) workModal.showModal();
+    workFrame.focus();
+  }
+
+  function closeWorkModal(force) {
+    if (!force && workDirty && !confirm("입력한 내용이 사라집니다. 닫을까요?")) return;
+    workModal.close();
+    document.getElementById("work-modal-body").replaceChildren();
+    workFrame = null;
+  }
+
+  if (workModal) {
+    window.addEventListener("message", (event) => {
+      if (!workFrame || event.origin !== location.origin || event.source !== workFrame.contentWindow) return;
+      const data = event.data || {};
+      if (data.type === "baro:dirty") workDirty = Boolean(data.dirty);
+      else if (data.type === "baro:close") closeWorkModal(true);
+      else if (data.type === "baro:escape") closeWorkModal(false);
+      else if (data.type === "baro:posted") {
+        closeWorkModal(true);
+        const input = document.querySelector(".work-composer input[name=command]");
+        if (input) input.value = "";
+        showToast("채널에 남겼습니다.");
+        scrollTimeline();
+      }
+    });
+    workModal.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeWorkModal(false);
+    });
+    workModal.addEventListener("click", (event) => {
+      if (event.target === workModal) closeWorkModal(false);
+    });
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest("[data-work-frame]");
+      if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
+      event.preventDefault();
+      openWorkFrame(link.dataset.workFrame, "medium", link.dataset.workTitle);
+    });
+    // 상세 링크(/posts/번호#detail-글번호)를 직접 열면 상세 화면을 띄운다.
+    document.addEventListener("DOMContentLoaded", () => {
+      const found = /^#detail-(\d+)$/.exec(location.hash);
+      const link = found && document.querySelector(`[data-work-frame="/works/messages/${found[1]}/detail"]`);
+      if (link) openWorkFrame(link.dataset.workFrame, "medium", link.dataset.workTitle);
+    });
+  }
+
+  function setupWorkComposer(form) {
+    const input = form.querySelector("input[name=command]");
+    const box = form.querySelector(".work-input");
+    let commands = null;
+    let menu = null;
+
+    function close() {
+      if (menu) menu.remove();
+      menu = null;
+    }
+
+    async function run(name) {
+      close();
+      if (commands === null) {
+        const response = await fetch(form.dataset.commands);
+        commands = response.ok ? await response.json() : [];
+      }
+      const command = commands.find((row) => row.name === name.toLowerCase());
+      if (!command) { showToast(`없는 명령어입니다: /${name}`); return; }
+      openWorkFrame(command.url, command.size, command.label);
+    }
+
+    function move(step) {
+      const items = Array.from(menu.querySelectorAll("button"));
+      const index = items.findIndex((item) => item.classList.contains("on"));
+      items.forEach((item) => item.classList.remove("on"));
+      items[(index + step + items.length) % items.length].classList.add("on");
+    }
+
+    async function show() {
+      const typed = input.value.trim();
+      close();
+      if (!typed.startsWith("/")) return;
+      if (commands === null) {
+        const response = await fetch(form.dataset.commands);
+        commands = response.ok ? await response.json() : [];
+      }
+      const word = typed.slice(1).toLowerCase();
+      const rows = commands.filter((row) => row.name.startsWith(word) || row.label.includes(word));
+      if (input.value.trim() !== typed) return;
+      menu = document.createElement("div");
+      menu.className = "mention-menu";
+      if (!rows.length) {
+        const empty = document.createElement("button");
+        empty.type = "button";
+        empty.disabled = true;
+        empty.textContent = commands.length ? "맞는 명령어가 없습니다" : "등록된 명령어가 없습니다";
+        menu.append(empty);
+      }
+      rows.forEach((row) => {
+        const button = document.createElement("button");
+        const detail = document.createElement("small");
+        button.type = "button";
+        button.dataset.name = row.name;
+        detail.textContent = row.description ? `${row.label} · ${row.description}` : row.label;
+        button.append(`/${row.name}`, detail);
+        menu.append(button);
+      });
+      menu.addEventListener("mousedown", (event) => {
+        const button = event.target.closest("button[data-name]");
+        event.preventDefault();
+        if (button) run(button.dataset.name);
+      });
+      box.append(menu);
+      if (rows.length) move(1);
+    }
+
+    input.addEventListener("input", show);
+    input.addEventListener("focus", show);
+    input.addEventListener("blur", close);
+    input.addEventListener("keydown", (event) => {
+      if (!menu) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (menu.querySelector("button[data-name]")) move(event.key === "ArrowDown" ? 1 : -1);
+      } else if (event.key === "Escape") {
+        close();
+      } else if ((event.key === "Enter" || event.key === "Tab") && !event.isComposing) {
+        const selected = menu.querySelector("button.on");
+        if (selected) { event.preventDefault(); run(selected.dataset.name); }
+      }
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const found = /^\/(\S+)/.exec(input.value.trim());
+      if (found) run(found[1]);
+      else showToast("명령어를 / 로 시작해 입력해 주세요.");
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".work-composer").forEach(setupWorkComposer);
+  });
   document.addEventListener("DOMContentLoaded", scrollTimeline);
   scrollTimeline();
 })();

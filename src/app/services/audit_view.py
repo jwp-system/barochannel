@@ -54,6 +54,19 @@ ACTION_LABELS = {
     "system.seed": "샘플 데이터 생성",
     "user.create": "사용자 등록",
     "user.update": "사용자 변경",
+    # work.submit~work.share는 v2까지 남은 기록을 보여주려고 둔다.
+    "work.submit": "업무 등록",
+    "work.update": "업무 수정",
+    "work.action": "업무 처리",
+    "work.share": "업무 공유",
+    "work.api": "업무 API 호출",
+    "work.message": "업무 메시지",
+    "work.webhook_issue": "훅 키 발급",
+    "work.webhook_revoke": "훅 끄기",
+    "work.command_create": "명령어 등록",
+    "work.command_update": "명령어 수정",
+    "work.command_archive": "명령어 보관",
+    "work.command_restore": "명령어 다시 사용",
 }
 
 # 화면의 종류 선택. 값은 action 앞부분이다.
@@ -63,6 +76,7 @@ ACTION_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
     "mention.": ("읽음 확인", ("mention.",)),
     "post.": ("글·첨부 삭제", ("post.", "attachment.")),
     "channel.": ("채널 설정", ("channel.",)),
+    "work.": ("업무", ("work.",)),
     "group.": ("그룹", ("group.",)),
     "org.": ("조직", ("user.", "department.")),
     "admin.": ("관리자", ("admin.", "system.")),
@@ -130,6 +144,7 @@ VALUE_LABELS = {
     "vote": "투표",
     "doc": "문서",
     "approval": "결재",
+    "work": "업무",
     **REVIEW_LABELS,
 }
 

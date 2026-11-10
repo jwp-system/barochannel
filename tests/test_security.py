@@ -33,6 +33,8 @@ PUBLIC = {
     ("GET", "/favicon.ico"),
 }
 DOC_PATHS = {"/docs", "/docs/oauth2-redirect", "/openapi.json"}
+# 로그인 세션 대신 서명으로 인증하는 외부 시스템용 주소(F-98). 아래에서 따로 확인한다.
+SIGNED = {("POST", "/hooks/work/{command_id}")}
 
 
 def all_routes() -> list[tuple[str, str]]:
@@ -61,7 +63,7 @@ def test_route_list_is_complete() -> None:
     assert len(all_routes()) >= 30
 
 
-@pytest.mark.parametrize(("method", "path"), [r for r in all_routes() if r not in PUBLIC])
+@pytest.mark.parametrize(("method", "path"), [r for r in all_routes() if r not in PUBLIC | SIGNED])
 def test_every_route_requires_login(method: str, path: str) -> None:
     anonymous = Browser()
     anonymous.refresh_token()
@@ -75,7 +77,8 @@ def test_every_route_requires_login(method: str, path: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("method", "path"), [r for r in all_routes() if r[0] != "GET" and r != ("POST", "/login")]
+    ("method", "path"),
+    [r for r in all_routes() if r[0] != "GET" and r != ("POST", "/login") and r not in SIGNED],
 )
 def test_every_change_requires_csrf(method: str, path: str) -> None:
     user = add_user("user")
@@ -83,6 +86,15 @@ def test_every_change_requires_csrf(method: str, path: str) -> None:
     response = signed_in.http.request(method, concrete(path), data={})
     assert response.status_code == 403, path
     assert "보안 토큰" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(("method", "path"), sorted(SIGNED))
+def test_signed_routes_reject_unsigned_requests(method: str, path: str) -> None:
+    """세션이 있어도 서명이 없으면 거절한다. 세션만으로는 아무 일도 하지 못한다."""
+    signed_in = browser(add_user("user"))
+    for client in (Browser().http, signed_in.http):
+        response = client.request(method, concrete(path), content=b'{"id": "1"}')
+        assert response.status_code == 401, path
 
 
 def test_login_without_csrf_is_rejected(client: TestClient) -> None:

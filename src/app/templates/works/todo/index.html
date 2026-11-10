@@ -1,0 +1,30 @@
+{% extends "works/base.html" %}
+{% block scripts %}<script src="{{ asset('works/todo.js') }}" defer></script>{% endblock %}
+{% block content %}
+<form id="todo-form" novalidate>
+  <label><span>제목 <span class="required">*</span></span>
+    <input name="title" required maxlength="200" autocomplete="off">
+    <span class="field-error" data-error-for="title"></span>
+  </label>
+  <label>설명
+    <textarea name="description" rows="4" maxlength="2000" placeholder="해야 할 일을 자세히 적어 주세요"></textarea>
+  </label>
+  <label>담당자
+    <input name="assignee" maxlength="50" list="people" autocomplete="off" placeholder="이름을 입력하면 바로채널 사용자를 찾습니다">
+    <datalist id="people"></datalist>
+  </label>
+  <label>마감일
+    <input name="due" type="date">
+    <span class="field-error" data-error-for="due"></span>
+  </label>
+  <label><span>우선순위 <span class="required">*</span></span>
+    <select name="priority" required><option value="">불러오는 중…</option></select>
+    <span class="field-error" data-error-for="priority"></span>
+  </label>
+  <div class="work-buttons"><button class="primary" id="todo-submit">할 일 등록</button></div>
+</form>
+<section id="todo-result" class="stack" hidden>
+  <p><strong>할 일을 등록했습니다.</strong> 채널에 남기려면 아래 [남기고 닫기]를 누르세요.</p>
+  <dl class="work-detail" data-todo-fields></dl>
+</section>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "works/base.html" %}
+{% block scripts %}<script src="{{ asset('works/todo.js') }}" defer></script>{% endblock %}
+{% block content %}
+<form id="todo-search" novalidate>
+  <label>검색어 <input name="q" maxlength="100" placeholder="제목이나 설명" autocomplete="off"></label>
+  <label>상태 <select name="status"><option value="">전체</option></select></label>
+  <label>담당자 <input name="assignee" maxlength="50" autocomplete="off"></label>
+  <div class="work-buttons"><button class="primary">찾기</button></div>
+</form>
+<section class="stack" id="todo-results" hidden>
+  <p class="muted" data-todo-total></p>
+  <ul class="work-list" data-todo-list></ul>
+</section>
+{% endblock %}

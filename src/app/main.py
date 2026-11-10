@@ -31,10 +31,12 @@ from app.routers import (
     posts,
     search,
     spaces,
+    work,
 )
 from app.services.admin import PIN_CHANGE_PATH
 from app.services.realtime import hub
 from app.services.storage import ensure_bucket
+from app.services.work import screens
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,8 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
         raise RuntimeError("운영에서는 BARO_SECRET_KEY를 설정해야 합니다.")
     if not settings.debug and settings.admin_email and not settings.admin_password:
         raise RuntimeError("BARO_ADMIN_EMAIL을 쓰려면 BARO_ADMIN_PASSWORD를 설정해야 합니다.")
+    # 업무 화면 정의가 틀렸으면 시작하지 않는다.
+    screens()
     try:
         await ensure_bucket()
     except (BotoCoreError, ClientError) as error:
@@ -123,12 +127,14 @@ def create_app() -> FastAPI:
         approvals,
         polls,
         documents,
+        work,
         search,
         audit,
         attachments,
         events,
     ):
         application.include_router(module.router)
+    application.include_router(work.hook_router)
     return application
 
 

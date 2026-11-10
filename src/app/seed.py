@@ -26,6 +26,7 @@ from app.models import (
     PostRevision,
     Reaction,
     User,
+    WorkCommand,
 )
 from app.services.admin import ADMIN_NAME
 from app.services.audit import record_audit
@@ -37,6 +38,10 @@ from app.services.storage import ensure_bucket, mime_for, put_file
 # seed_data/sample_org.xlsx의 초기 비밀번호와 같다.
 SAMPLE_PASSWORD = "qlalfqjsgh-1"  # 한글 자판으로 '비밀번호-1'
 EMAIL_DOMAIN = "baro.example"
+# samples/todo_api.py의 기본 주소와 토큰.
+# BARO_INTEGRATION_ALLOWED_HOSTS에 127.0.0.1:8100이 있어야 한다.
+SAMPLE_TODO_URL = "http://127.0.0.1:8100/todos"
+SAMPLE_TODO_TOKEN = "dev-todo-token"
 
 # 소속·사용자, 그룹·그룹 관리자, 채널·권한은 엑셀 파일에 둔다.
 # 관리 화면의 일괄 등록과 같은 코드로 읽는다.
@@ -250,6 +255,35 @@ async def seed(session: AsyncSession) -> None:
         )
     )
     rule.edited_at = db.now - timedelta(hours=30)
+
+    # 업무 채널은 samples/todo_api.py의 샘플 할 일 시스템을 부른다.
+    # 그 서버를 따로 띄워야 쓸 수 있다.
+    await db.add(
+        WorkCommand(
+            channel_id=channels["할 일"].id,
+            name="add",
+            label="할 일 등록",
+            description="샘플 할 일 시스템에 할 일을 만듭니다",
+            screen="todo",
+            page="index",
+            endpoint_url=SAMPLE_TODO_URL,
+            api_token=SAMPLE_TODO_TOKEN,
+            created_by=u["sa1"].id,
+        )
+    )
+    await db.add(
+        WorkCommand(
+            channel_id=channels["할 일"].id,
+            name="find",
+            label="할 일 찾기",
+            description="샘플 할 일 시스템에서 찾아 골라 공유합니다",
+            screen="todo",
+            page="find",
+            endpoint_url=SAMPLE_TODO_URL,
+            api_token=SAMPLE_TODO_TOKEN,
+            created_by=u["sa1"].id,
+        )
+    )
 
     # 영업1팀은 자기 승인선을, 영업2팀은 상위 소속인 영업본부의 승인선을 쓴다.
     expense = channels["지출결의"]

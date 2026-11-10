@@ -283,12 +283,19 @@ async def post_card(post_id: int, session: SessionDep, authz: AuthzDep) -> HTMLR
 
 
 async def editable_view(
-    session: AsyncSession, authz: Authorizer, post_id: int, *, lock: bool = False
+    session: AsyncSession,
+    authz: Authorizer,
+    post_id: int,
+    *,
+    lock: bool = False,
+    deleting: bool = False,
 ) -> tuple[Post, Post | None, Channel, ChannelAccess]:
     context = await post_context(session, authz, post_id, lock=lock)
     post, parent, channel, access = context
     (view,) = await build_views(session, [post], authz, channel, access, parent)
-    if not view.can_edit:
+    # F-92, F-93: 업무 기록은 고칠 수 없지만 작성자가 지울 수는 있다.
+    removable = deleting and view.work is not None and view.can_delete_files
+    if not (view.can_edit or removable):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "본인 글만 고칠 수 있습니다.")
     return context
 
@@ -477,7 +484,9 @@ async def mention_candidates(
 
 @router.post("/posts/{post_id}/delete", response_class=HTMLResponse)
 async def delete_post(post_id: int, session: SessionDep, authz: AuthzDep) -> HTMLResponse:
-    post, parent, channel, access = await editable_view(session, authz, post_id, lock=True)
+    post, parent, channel, access = await editable_view(
+        session, authz, post_id, lock=True, deleting=True
+    )
     if is_document(post, channel):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "등록한 문서는 삭제할 수 없습니다.")
     live_replies = await session.scalar(

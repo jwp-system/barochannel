@@ -26,6 +26,8 @@
     </nav>
     {% block main %}{% endblock %}
   </div>
+  {# 업무 화면(templates/works)을 iframe으로 띄운다. 입력 화면과 상세 화면이 함께 쓴다. #}
+  <dialog id="work-modal" class="modal work-modal" aria-label="업무 화면"><div id="work-modal-body"></div></dialog>
   {% if root_tab %}<nav class="tabbar" aria-label="주 메뉴">{% include "partials/nav_tabs.html" %}</nav>{% endif %}
 </div>
 {% endblock %}

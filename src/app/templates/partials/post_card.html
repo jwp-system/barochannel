@@ -9,9 +9,9 @@
     {% if v.post.pinned_at %}<span class="tag blue">고정</span>{% endif %}
     {% if v.approval %}<span class="tag blue">{{ v.approval.status_label }}</span>{% endif %}
   </header>
-  {% if v.post.title and not v.is_reply %}<h3 class="approval-title"><a href="/posts/{{ v.post.id }}">{{ v.post.title }}</a></h3>{% endif %}
+  {% if v.post.title and not v.is_reply and not v.work %}<h3 class="approval-title"><a href="/posts/{{ v.post.id }}">{{ v.post.title }}</a></h3>{% endif %}
   {% if v.approval %}<h3 class="approval-title"><a href="/approvals/{{ v.post.id }}">{{ v.approval.approval.title }}</a></h3>{% endif %}
-  <div class="body">{{ v.body_html|safe }}</div>
+  {% if v.work %}{% include "partials/work_block.html" %}{% else %}<div class="body">{{ v.body_html|safe }}</div>{% endif %}
   {% include "partials/attachment_list.html" %}
   {% if v.approval %}{% include "partials/approval_block.html" %}{% endif %}
   {% if v.poll %}{% include "partials/poll_block.html" %}{% endif %}

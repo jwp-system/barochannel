@@ -1,0 +1,10 @@
+{% extends "works/base.html" %}
+{% block scripts %}<script src="{{ asset('works/todo.js') }}" defer></script>{% endblock %}
+{% block heading %}할 일 상세{% endblock %}
+{% block content %}
+<p class="muted" id="todo-loading">불러오는 중…</p>
+<section id="todo-detail" class="stack" hidden>
+  <dl class="work-detail" data-todo-fields></dl>
+  <div class="work-buttons" data-todo-actions></div>
+</section>
+{% endblock %}

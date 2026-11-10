@@ -1,0 +1,27 @@
+{#- 업무 화면의 공통 틀. 화면은 content 블록만 채우고, 아래 [닫기]와 [남기고 닫기]는 여기서 그린다.
+    CSP로 인라인 스크립트와 외부 주소 호출이 막혀 있다. 스크립트는 static/works/에 파일로 둔다. -#}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ command.label }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ asset('app.css') }}">
+  <link rel="stylesheet" href="{{ asset('works/works.css') }}">
+  <script src="{{ asset('works/baro-work.js') }}" defer></script>
+  {% block scripts %}{% endblock %}
+</head>
+<body class="work-screen" data-page="{{ baro.page }}">
+  <script type="application/json" id="baro-context">{{ baro|tojson }}</script>
+  <header class="work-screen-head">
+    <p class="work-command"><span class="tag">/{{ command.name }}</span> {{ command.label }}</p>
+    <h1>{% block heading %}{{ screen.pages.get(baro.page) or screen.title }}{% endblock %}</h1>
+  </header>
+  <main class="work-screen-body">{% block content %}{% endblock %}</main>
+  <footer class="work-screen-foot">
+    <p class="work-screen-status" role="status" aria-live="polite" data-baro-status></p>
+    <button type="button" data-baro-close>닫기</button>
+    {% if baro.can_leave %}<button type="button" class="primary" data-baro-leave disabled title="남길 내용이 생기면 누를 수 있습니다">남기고 닫기</button>{% endif %}
+  </footer>
+</body>
+</html>

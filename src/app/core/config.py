@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # 쉼표로 구분한다. 환경 변수 값은 JSON이 아니라 validator가 해석한다.
     allowed_extensions: Annotated[frozenset[str], NoDecode] = DEFAULT_EXTENSIONS
 
+    # 업무 채널이 부를 수 있는 외부 시스템. "호스트" 또는 "호스트:포트"를 쉼표로 구분한다.
+    # 그룹 관리자가 넣은 주소로 서버가 내부망을 마음대로 부르지 않게 한다(F-83).
+    integration_allowed_hosts: Annotated[frozenset[str], NoDecode] = frozenset()
+    integration_timeout_seconds: float = Field(default=5, gt=0, le=30)
+
     @field_validator("admin_email")
     @classmethod
     def normalize_admin_email(cls, value: str) -> str:
@@ -54,6 +59,13 @@ class Settings(BaseSettings):
         if value and len(value) < 8:
             raise ValueError("BARO_ADMIN_PASSWORD는 8자 이상이어야 합니다.")
         return value
+
+    @field_validator("integration_allowed_hosts", mode="before")
+    @classmethod
+    def parse_hosts(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return frozenset(item.strip().lower() for item in value.split(",")) - {""}
 
     @field_validator("allowed_extensions", mode="before")
     @classmethod

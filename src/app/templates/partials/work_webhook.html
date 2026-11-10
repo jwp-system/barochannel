@@ -1,0 +1,9 @@
+{# 서버 훅 키 발급 결과. 키는 이번에만 보인다. #}
+<div class="stack work-webhook" role="status">
+  <p><strong>훅 키를 발급했습니다.</strong> 이 화면을 닫으면 키를 다시 볼 수 없습니다. 외부 시스템에 아래 두 값을 등록해 주세요.</p>
+  <label>훅 주소 <input readonly value="{{ url }}"></label>
+  <label>서명 키 <input readonly value="{{ command.webhook_secret }}"></label>
+  <p class="muted">외부 시스템은 <code>POST</code>로 <code>{"text": "남길 문장", "fields": [...], "detail": {...}, "actor": "바꾼 사람"}</code>을 보내고,
+    <code>X-Baro-Event-Id</code>(이벤트마다 다른 값), <code>X-Baro-Timestamp</code>(유닉스 초),
+    <code>X-Baro-Signature: sha256=HMAC-SHA256(키, "시각.본문")</code>을 붙입니다. 채널에 새 메시지로 남습니다.</p>
+</div>
