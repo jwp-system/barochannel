@@ -112,7 +112,7 @@ class Seeder:
 
 
 async def seed(session: AsyncSession) -> None:
-    """빈 DB에만 넣는다. 시스템 관리자는 초기 PIN 상태로 만든다."""
+    """빈 DB에만 넣는다."""
     if await session.scalar(select(func.count()).select_from(User)):
         raise RuntimeError("이미 사용자가 있습니다. 샘플 데이터는 빈 DB에만 넣습니다.")
     await ensure_bucket()

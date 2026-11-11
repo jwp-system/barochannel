@@ -217,19 +217,6 @@ form.card textarea { min-height: 96px; }
 .thread-root { background: var(--surface); border-radius: var(--radius); flex: none; margin: 4px 16px 6px; max-height: 30%; overflow-y: auto; padding: 14px 16px; }
 .thread-root strong { font-size: 15px; }
 
-.pin-box { align-items: center; display: flex; flex-direction: column; gap: 22px; max-width: 340px; text-align: center; width: 100%; }
-#pin-form { height: 1px; opacity: 0; overflow: hidden; position: absolute; width: 1px; }
-.pin-dots { display: flex; gap: 16px; }
-.pin-dots i { background: var(--fill-strong); border-radius: 50%; display: block; height: 16px; transition: background-color .12s, transform .12s; width: 16px; }
-.pin-dots i.on { background: var(--accent); transform: scale(1.1); }
-.pin-dots.shake { animation: shake .32s; }
-@keyframes shake { 25% { transform: translateX(-7px); } 50% { transform: translateX(7px); } 75% { transform: translateX(-4px); } }
-#pin-message { min-height: 22px; }
-.keypad { display: grid; gap: 6px; grid-template-columns: repeat(3, 1fr); width: 100%; }
-.keypad button, .keypad-back { align-items: center; background: none; border-radius: var(--radius); color: var(--text); display: flex; font-size: 24px; font-weight: 600; height: 64px; justify-content: center; }
-.keypad button:hover { background: var(--fill-strong); }
-.keypad button.keypad-back, .keypad a.keypad-back { color: var(--text-3); font-size: 16px; }
-
 #toast { background: var(--text); border-radius: var(--radius-sm); bottom: 24px; box-shadow: 0 6px 24px rgba(0, 27, 55, .2); color: var(--page); font-size: 15px; font-weight: 600; left: 50%; max-width: calc(100% - 32px); padding: 12px 18px; position: fixed; transform: translateX(-50%); z-index: 20; }
 
 @media (max-width: 800px) {

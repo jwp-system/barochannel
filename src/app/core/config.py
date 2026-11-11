@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     # 시스템 관리자의 로그인 정보는 화면이나 DB가 아니라 환경 변수로만 관리한다.
     admin_email: str = ""
     admin_password: str = ""
-    admin_mode_minutes: int = 30
+
+    # 화면 왼쪽 위 로고 옆에 보이는 이름.
+    company_name: str = "바로채널"
 
     s3_endpoint_url: str = "http://127.0.0.1:9000"
     s3_access_key: str = "barochannel"

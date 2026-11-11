@@ -1,6 +1,4 @@
-"""시스템 관리자는 환경 변수로만 지정하고, 관리 기능은 PIN을 확인한 동안에만 열린다."""
-
-import time
+"""시스템 관리자는 환경 변수로만 지정하고, 로그인하면 바로 관리 기능이 열린다."""
 
 import pytest
 from pydantic import ValidationError
@@ -8,10 +6,9 @@ from sqlalchemy import select
 
 from app.core.config import Settings, get_settings
 from app.core.db import SessionLocal
+from app.core.templating import templates
 from app.models import AuditLog, User
-from app.services.admin import INITIAL_PIN, MAX_PIN_FAILURES, PIN_CHANGE_PATH, safe_next
 from tests.conftest import (
-    ADMIN_PIN,
     FULL,
     PASSWORD,
     Browser,
@@ -24,15 +21,6 @@ from tests.conftest import (
     post_id,
     run,
 )
-
-WRONG_PIN = "000000"
-
-
-def fail_pin(signed_in, times: int):
-    response = None
-    for _ in range(times):
-        response = signed_in.post("/admin/pin", data={"pin": WRONG_PIN})
-    return response
 
 
 def audit_actions() -> list[str]:
@@ -53,78 +41,7 @@ def test_group_manager_is_not_system_admin() -> None:
     signed_in = browser(manager)
     assert signed_in.get("/admin/org").status_code == 403
     assert signed_in.get("/admin/groups").status_code == 403
-    assert signed_in.get("/admin/pin").status_code == 403
-    assert signed_in.post("/admin/pin", data={"pin": ADMIN_PIN}).status_code == 403
     assert signed_in.post("/admin/groups", data={"name": "x"}).status_code == 403
-
-
-def test_correct_pin_from_non_admin_does_not_open_admin_mode() -> None:
-    signed_in = browser(add_user("plain"))
-    signed_in.post("/admin/pin", data={"pin": ADMIN_PIN})
-    assert signed_in.get("/admin/org").status_code == 403
-
-
-def test_admin_without_pin_is_sent_to_pin_page() -> None:
-    signed_in = browser(add_user("admin"))
-    response = signed_in.get("/admin/org")
-    assert response.status_code == 303
-    assert response.headers["location"] == "/admin/pin?next=%2Fadmin%2Forg"
-    change = signed_in.post("/admin/departments", data={"name": "x"})
-    assert change.headers["HX-Redirect"].startswith("/admin/pin")
-
-
-def test_correct_pin_opens_admin_pages_and_is_audited() -> None:
-    signed_in = admin_browser(add_user("admin"))
-    assert signed_in.get("/admin/org").status_code == 200
-    assert audit_actions() == ["admin.pin_success"]
-
-
-def test_admin_mode_expires(monkeypatch) -> None:
-    signed_in = admin_browser(add_user("admin"))
-    later = time.time() + get_settings().admin_mode_minutes * 60 + 1
-    monkeypatch.setattr("app.services.admin.time.time", lambda: later)
-    assert signed_in.get("/admin/org").status_code == 303
-
-
-def test_exit_and_logout_close_admin_mode() -> None:
-    admin = add_user("admin")
-    signed_in = admin_browser(admin)
-    signed_in.post("/admin/exit")
-    assert signed_in.get("/admin/org").status_code == 303
-
-    signed_in = admin_browser(admin)
-    signed_in.post("/logout")
-    signed_in.login(admin.email)
-    assert signed_in.get("/admin/org").status_code == 303
-
-
-def test_failures_show_remaining_and_lock_after_limit() -> None:
-    signed_in = browser(add_user("admin"))
-    assert "4회 남았습니다" in fail_pin(signed_in, 1).text
-    response = fail_pin(signed_in, MAX_PIN_FAILURES - 1)
-    assert "잠겼습니다" in response.text
-    locked = signed_in.post("/admin/pin", data={"pin": ADMIN_PIN})
-    assert "HX-Redirect" not in locked.headers and "잠겼습니다" in locked.text
-    assert signed_in.get("/admin/org").status_code == 303
-    assert audit_actions().count("admin.pin_failure") == MAX_PIN_FAILURES - 1
-    assert audit_actions().count("admin.pin_locked") == 1
-
-
-def test_new_login_does_not_reset_lock_or_failure_count() -> None:
-    admin = add_user("admin")
-    fail_pin(browser(admin), MAX_PIN_FAILURES - 1)
-    fresh = browser(admin)
-    assert "잠겼습니다" in fail_pin(fresh, 1).text
-    other_session = browser(admin)
-    response = other_session.post("/admin/pin", data={"pin": ADMIN_PIN})
-    assert "HX-Redirect" not in response.headers
-
-
-def test_success_resets_failure_count() -> None:
-    signed_in = browser(add_user("admin"))
-    fail_pin(signed_in, MAX_PIN_FAILURES - 1)
-    assert signed_in.post("/admin/pin", data={"pin": ADMIN_PIN}).headers["HX-Redirect"]
-    assert "4회 남았습니다" in fail_pin(signed_in, 1).text
 
 
 def test_removing_email_from_env_closes_open_admin_mode(monkeypatch) -> None:
@@ -139,22 +56,9 @@ def test_admin_email_is_normalized_and_short_password_rejected() -> None:
         Settings(admin_password="short")
 
 
-@pytest.mark.parametrize("target", ["https://evil.test", "//evil.test", "/\\evil.test", "x"])
-def test_next_cannot_leave_site(target: str) -> None:
-    assert safe_next(target) == "/admin/org"
-
-
-def test_pin_redirect_ignores_external_next() -> None:
-    signed_in = browser(add_user("admin"))
-    response = signed_in.post("/admin/pin", data={"pin": ADMIN_PIN, "next": "//evil.test"})
-    assert response.headers["HX-Redirect"] == "/admin/org"
-
-
-def test_only_system_admin_creates_groups_and_needs_pin() -> None:
-    assert (
-        "HX-Redirect"
-        in browser(add_user("admin")).post("/admin/groups", data={"name": "x"}).headers
-    )
+def test_only_system_admin_creates_groups() -> None:
+    created = browser(add_user("admin")).post("/admin/groups", data={"name": "x"})
+    assert created.headers["HX-Redirect"].startswith("/admin/groups/")
     assert browser(add_user("plain")).post("/admin/groups", data={"name": "x"}).status_code == 403
     assert browser(add_user("plain2")).post("/groups", data={"name": "x"}).status_code == 405
 
@@ -306,21 +210,16 @@ def login_attempt(email: str, password: str):
 
 def first_login() -> Browser:
     signed_in, response = login_attempt("admin@test.local", PASSWORD)
-    assert response.headers["HX-Redirect"] == PIN_CHANGE_PATH
+    assert response.headers["HX-Redirect"] == "/"
     signed_in.refresh_token()
     return signed_in
-
-
-def change(signed_in, current: str, new: str, confirm: str | None = None):
-    data = {"current_pin": current, "new_pin": new, "confirm_pin": confirm or new}
-    return signed_in.post(PIN_CHANGE_PATH, data=data)
 
 
 def test_first_login_creates_row_from_env_without_password_hash() -> None:
     assert admin_row() is None
     first_login()
     row = admin_row()
-    assert row.password_hash is None and row.pin_hash is None and row.is_active
+    assert row.password_hash is None and row.is_active
 
 
 def test_env_password_is_the_only_admin_password() -> None:
@@ -344,7 +243,7 @@ def test_empty_env_password_disables_admin_login(monkeypatch) -> None:
 def test_login_email_is_case_insensitive_and_allows_underscore_domain(monkeypatch) -> None:
     monkeypatch.setattr(get_settings(), "admin_email", "admin@baro_system.com")
     _, response = login_attempt("ADMIN@baro_system.com", PASSWORD)
-    assert response.headers["HX-Redirect"] == PIN_CHANGE_PATH
+    assert response.headers["HX-Redirect"] == "/"
 
 
 def test_login_input_does_not_use_browser_email_validation() -> None:
@@ -353,112 +252,24 @@ def test_login_input_does_not_use_browser_email_validation() -> None:
     assert 'type="email"' not in page and 'inputmode="email"' in page
 
 
-def test_initial_pin_does_not_open_admin_mode() -> None:
+def test_first_login_opens_admin_pages_without_pin() -> None:
     signed_in = first_login()
-    response = signed_in.post("/admin/pin", data={"pin": INITIAL_PIN})
-    assert response.headers["HX-Redirect"] == PIN_CHANGE_PATH
-    assert signed_in.get("/admin/org").headers["location"] == PIN_CHANGE_PATH
-
-
-@pytest.mark.parametrize("path", ["/", "/groups", "/admin/org", "/admin/pin"])
-def test_every_page_waits_for_pin_change(path: str) -> None:
-    response = first_login().get(path)
-    assert response.status_code == 303 and response.headers["location"] == PIN_CHANGE_PATH
-
-
-def test_first_change_stores_only_a_hash_and_opens_admin_mode() -> None:
-    signed_in = first_login()
-    assert change(signed_in, INITIAL_PIN, "739251").headers["HX-Redirect"] == "/admin/org"
+    assert signed_in.get("/").status_code == 200
     assert signed_in.get("/admin/org").status_code == 200
-    row = admin_row()
-    assert row.pin_hash and "739251" not in row.pin_hash
-    assert audit_actions() == ["admin.pin_change"]
 
 
-def test_new_pin_works_and_initial_pin_stops_working() -> None:
-    change(first_login(), INITIAL_PIN, "739251")
-    signed_in = browser_for_admin()
-    assert "HX-Redirect" not in signed_in.post("/admin/pin", data={"pin": INITIAL_PIN}).headers
-    assert signed_in.post("/admin/pin", data={"pin": "739251"}).headers["HX-Redirect"]
+def test_admin_bar_sits_below_brand_with_company_name(monkeypatch) -> None:
+    monkeypatch.setitem(templates.env.globals, "company_name", "가나상사")
+    page = browser(add_user("admin")).get("/").text
+    assert "가나상사</a>" in page and "바로채널</a>" not in page
+    assert page.index('class="user-bar"') < page.index('class="admin-bar"')
+    assert 'class="admin-bar"' not in browser(add_user("plain")).get("/").text
 
 
-def browser_for_admin() -> Browser:
-    return Browser().login("admin@test.local")
-
-
-@pytest.mark.parametrize(
-    ("new", "confirm", "text"),
-    [
-        ("123456", "123456", "연속"),
-        ("654321", "654321", "연속"),
-        ("777777", "777777", "같은 숫자"),
-        ("12345", "12345", "6자리"),
-        ("73925a", "73925a", "6자리"),
-        ("739251", "739252", "서로 다릅니다"),
-    ],
-)
-def test_weak_or_mismatched_new_pin_is_rejected(new: str, confirm: str, text: str) -> None:
-    signed_in = first_login()
-    response = change(signed_in, INITIAL_PIN, new, confirm)
-    assert "HX-Redirect" not in response.headers and text in response.text
-    assert admin_row().pin_hash is None
-
-
-def test_new_pin_must_differ_from_current() -> None:
-    signed_in = admin_browser(add_user("admin"))
-    response = change(signed_in, ADMIN_PIN, ADMIN_PIN)
-    assert "다르게" in response.text
-
-
-def test_change_with_wrong_current_counts_toward_lock() -> None:
-    signed_in = first_login()
-    for _ in range(MAX_PIN_FAILURES):
-        response = change(signed_in, "999999", "739251")
-    assert "잠겼습니다" in response.text
-    locked = change(signed_in, INITIAL_PIN, "739251")
-    assert "HX-Redirect" not in locked.headers and admin_row().pin_hash is None
-
-
-def test_voluntary_change_keeps_working_afterwards() -> None:
-    signed_in = admin_browser(add_user("admin"))
-    assert signed_in.get(PIN_CHANGE_PATH).status_code == 200
-    assert change(signed_in, ADMIN_PIN, "739251").headers["HX-Redirect"]
-    assert audit_actions()[-1] == "admin.pin_change"
-
-
-def test_pin_hash_depends_on_server_secret(monkeypatch) -> None:
-    add_user("admin")
-    signed_in = browser_for_admin()
-    monkeypatch.setattr(get_settings(), "secret_key", "another-secret-value")
-    assert "HX-Redirect" not in signed_in.post("/admin/pin", data={"pin": ADMIN_PIN}).headers
-
-
-def test_non_admin_cannot_open_pin_change() -> None:
-    signed_in = browser(add_user("plain"))
-    assert signed_in.get(PIN_CHANGE_PATH).status_code == 403
-    assert change(signed_in, INITIAL_PIN, "739251").status_code == 403
-
-
-def test_normal_user_never_sees_pin_requirement() -> None:
-    assert browser(add_user("plain")).get("/").status_code == 200
-
-
-def test_reset_pin_returns_to_initial_state_and_clears_lock() -> None:
-    from app.cli import run_reset_pin
-
-    add_user("admin")
-    fail_pin(browser_for_admin(), MAX_PIN_FAILURES)
-    assert run(run_reset_pin()) is True
-    row = admin_row()
-    assert row.pin_hash is None and row.pin_locked_until is None
-    assert audit_actions()[-1] == "admin.pin_reset"
-    assert first_login().get("/").headers["location"] == PIN_CHANGE_PATH
-
-
-def test_reset_pin_without_admin_row() -> None:
-    from app.cli import run_reset_pin
-
-    assert run(run_reset_pin()) is False
+def test_logout_closes_admin_mode() -> None:
+    signed_in = browser(add_user("admin"))
+    signed_in.post("/logout")
+    assert signed_in.get("/admin/org").status_code == 303
 
 
 def test_admin_password_page_is_closed() -> None:

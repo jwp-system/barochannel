@@ -33,7 +33,7 @@ from app.services.bulk_import import (
     parse_path,
 )
 from app.services.permissions import PERMISSIONS, normalize_grant
-from app.services.spreadsheet import Row, SheetSpec, build_workbook
+from app.services.spreadsheet import Choice, Row, SheetSpec, build_workbook
 
 CHANNEL_SHEET = "채널"
 GRANT_SHEET = "권한"
@@ -435,6 +435,8 @@ CHANNEL_GUIDE = [
     "한 행이 그 대상의 권한 전체를 정하며, 네 칸을 모두 비우면 그 권한을 지웁니다.",
     "· 답글 쓰기를 허용하면 답글 읽기도 허용되는 등 화면과 같은 규칙으로 맞춰 저장합니다.",
     "· 파일에 없는 채널과 권한은 지우지 않습니다.",
+    "· 그룹, 유형, 채널, 대상, 권한 칸은 드롭다운에서 고를 수 있습니다. 권한 시트의 채널은 "
+    "'채널' 시트의 목록이고, 대상은 사용 중인 사용자 이메일과 소속 경로입니다.",
     "· 한 행이라도 문제가 있으면 아무것도 반영하지 않습니다. 먼저 '미리 확인'으로 점검하세요.",
 ]
 
@@ -493,6 +495,12 @@ async def export_channels(session: AsyncSession, group_ids: set[int]) -> bytes:
             ]
         )
     grant_rows.sort(key=lambda row: (row[0], row[1] != "", row[1]))
+    group_names = tuple(sorted(group.name for group in groups.values()))
+    active = await session.scalars(
+        select(User.email).where(User.status == "active").order_by(User.email)
+    )
+    subjects = (*active, *sorted(format_path(path) for path in paths.values()))
+    setting = Choice(tuple(label for label in SETTINGS if label))
     return await to_thread.run_sync(
         build_workbook,
         [
@@ -500,4 +508,12 @@ async def export_channels(session: AsyncSession, group_ids: set[int]) -> bytes:
             (GRANT_SHEET, list(GRANT_COLUMNS), grant_rows),
         ],
         CHANNEL_GUIDE,
+        {
+            (CHANNEL_SHEET, "그룹"): Choice(group_names),
+            (CHANNEL_SHEET, "유형"): Choice(tuple(CHANNEL_TYPES.values())),
+            (GRANT_SHEET, "그룹"): Choice(group_names),
+            (GRANT_SHEET, "채널"): Choice(source=(CHANNEL_SHEET, "채널"), strict=False),
+            (GRANT_SHEET, "대상"): Choice(subjects, strict=False),
+            **{(GRANT_SHEET, column): setting for column in PERMISSION_COLUMNS},
+        },
     )

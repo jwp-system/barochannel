@@ -1,5 +1,6 @@
 """그룹 관리자는 관리하는 그룹의 채널과 권한을 엑셀로 한꺼번에 등록한다."""
 
+import re
 from datetime import UTC, datetime
 from html import unescape
 from io import BytesIO
@@ -224,7 +225,27 @@ def test_export_covers_managed_groups_and_round_trips() -> None:
 
     response = signed_in.get("/groups/export.xlsx")
     workbook = load_workbook(BytesIO(response.content))
-    assert workbook.sheetnames == ["채널", "권한", "안내"]
+    assert workbook.sheetnames == ["채널", "권한", "안내", "선택 목록"]
+    lists = {
+        (title, str(rule.sqref).split(":")[0]): rule.formula1
+        for title in ("채널", "권한")
+        for rule in workbook[title].data_validations.dataValidation
+    }
+    choices = workbook["선택 목록"]
+
+    def options(formula: str) -> list[str]:
+        column, last = re.search(r"!\$([A-Z]+)\$2:\$[A-Z]+\$(\d+)$", formula).groups()
+        return [cell.value for cell in choices[column][1 : int(last)]]
+
+    # 그룹은 관리하는 그룹만 고른다.
+    assert options(lists[("채널", "A2")]) == ["영업"]
+    assert options(lists[("채널", "C2")]) == ["소통", "투표", "문서", "결재", "업무"]
+    assert options(lists[("권한", "A2")]) == ["영업"]
+    assert lists[("권한", "B2")] == "'채널'!$B$2:$B$5001"
+    assert "본사" in options(lists[("권한", "C2")])
+    assert "manager@test.local" in options(lists[("권한", "C2")])
+    assert options(lists[("권한", "D2")]) == ["허용", "거부"]
+    assert len(lists) == 9
     assert list(workbook["채널"].iter_rows(values_only=True)) == [
         tuple(CHANNEL_HEADER),
         ("영업", "일반", "소통", 1, 5),

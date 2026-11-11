@@ -218,7 +218,18 @@ def test_org_export_round_trips_without_changes() -> None:
     assert response.status_code == 200
     assert "attachment" in response.headers["content-disposition"]
     workbook = load_workbook(BytesIO(response.content))
-    assert workbook.sheetnames == ["소속", "사용자", "안내"]
+    assert workbook.sheetnames == ["소속", "사용자", "안내", "선택 목록"]
+    assert workbook["선택 목록"].sheet_state == "hidden"
+    # 고르는 칸은 드롭다운이다. 소속은 '소속' 시트를 가리켜 새로 적은 소속도 고를 수 있다.
+    lists = {
+        str(rule.sqref).split(":")[0]: rule
+        for rule in workbook["사용자"].data_validations.dataValidation
+    }
+    assert lists["C2"].formula1 == "'소속'!$A$2:$A$5001" and lists["C2"].errorStyle == "warning"
+    assert lists["D2"].formula1 == "'소속'!$A$2:$A$5001"
+    assert lists["E2"].errorStyle == "stop"
+    status = workbook["선택 목록"]
+    assert [cell.value for cell in status["A"]] == ["사용자 · 상태", "사용", "비활성"]
     rows = list(workbook["사용자"].iter_rows(values_only=True))
     assert rows[0] == tuple(USER_HEADER)
     emails = [row[1] for row in rows[1:]]
@@ -248,7 +259,7 @@ def test_import_rejects_bad_files() -> None:
     assert "'그룹' 시트가 필요합니다." in response.page
 
 
-def test_import_and_export_need_admin_mode() -> None:
+def test_import_and_export_need_system_admin() -> None:
     manager = add_user("manager")
     add_group(manager)
     signed_in = browser(manager)

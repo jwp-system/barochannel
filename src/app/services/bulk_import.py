@@ -21,6 +21,7 @@ from app.services.admin import is_admin_email
 from app.services.audit import record_audit
 from app.services.spreadsheet import (
     XLSX_MEDIA_TYPE,
+    Choice,
     Row,
     SheetError,
     SheetSpec,
@@ -554,6 +555,9 @@ ORG_GUIDE = [
     "· 초기 비밀번호는 새 사용자에게만 필요하며 8자 이상입니다. "
     "기존 사용자의 비밀번호는 바꾸지 않습니다.",
     "· 파일에 없는 소속과 사용자는 지우지 않습니다. 소속 이름 변경과 이동은 화면에서 합니다.",
+    "· 상태, 소속, 주 소속 칸은 드롭다운에서 고를 수 있습니다. "
+    "소속 드롭다운은 '소속' 시트의 목록이고, "
+    "여러 개를 적으면 경고가 나오지만 그대로 쓸 수 있습니다.",
     "· 한 행이라도 문제가 있으면 아무것도 반영하지 않습니다. 먼저 '미리 확인'으로 점검하세요.",
 ]
 
@@ -564,6 +568,8 @@ GROUP_GUIDE = [
     "적으면 그 목록으로 바뀌고, 비우면 기존 관리자를 그대로 둡니다.",
     "· 상태는 '사용' 또는 '보관'입니다. 보관하면 그룹의 채널이 모두 닫힙니다.",
     "· 파일에 없는 그룹은 지우지 않습니다. 그룹 이름 변경은 화면에서 합니다.",
+    "· 상태와 관리자 칸은 드롭다운에서 고를 수 있습니다. 관리자를 여러 명 적으면 경고가 나오지만 "
+    "그대로 쓸 수 있습니다.",
     "· 한 행이라도 문제가 있으면 아무것도 반영하지 않습니다. 먼저 '미리 확인'으로 점검하세요.",
 ]
 
@@ -598,6 +604,11 @@ async def export_org(session: AsyncSession) -> bytes:
             (USER_SHEET, list(USER_COLUMNS), user_rows),
         ],
         ORG_GUIDE,
+        {
+            (USER_SHEET, "소속"): Choice(source=(DEPARTMENT_SHEET, "소속"), strict=False),
+            (USER_SHEET, "주 소속"): Choice(source=(DEPARTMENT_SHEET, "소속"), strict=False),
+            (USER_SHEET, "상태"): Choice(tuple(USER_STATUS)),
+        },
     )
 
 
@@ -618,8 +629,19 @@ async def export_groups(session: AsyncSession) -> bytes:
         ]
         for group in await session.scalars(select(WorkspaceGroup).order_by(WorkspaceGroup.name))
     ]
+    emails = await session.scalars(
+        select(User.email).where(User.status == "active").order_by(User.email)
+    )
     return await to_thread.run_sync(
-        build_workbook, [(GROUP_SHEET, list(GROUP_COLUMNS), group_rows)], GROUP_GUIDE
+        build_workbook,
+        [(GROUP_SHEET, list(GROUP_COLUMNS), group_rows)],
+        GROUP_GUIDE,
+        {
+            (GROUP_SHEET, "관리자"): Choice(
+                tuple(email for email in emails if not is_admin_email(email)), strict=False
+            ),
+            (GROUP_SHEET, "상태"): Choice(tuple(GROUP_ARCHIVED)),
+        },
     )
 
 

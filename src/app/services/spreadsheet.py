@@ -7,6 +7,8 @@ from io import BytesIO
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter, quote_sheetname
+from openpyxl.worksheet.datavalidation import DataValidation
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
 # 압축을 풀면 크게 부풀어 오르는 파일을 열기 전에 막는다.
@@ -100,9 +102,77 @@ def read_workbook(data: bytes, specs: dict[str, SheetSpec]) -> dict[str, list[Ro
 
 HEADER_FONT = Font(bold=True)
 HEADER_FILL = PatternFill("solid", fgColor="E8EEF7")
+CHOICE_SHEET = "선택 목록"
 
 
-def build_workbook(sheets: list[tuple[str, list[str], list[list[str]]]], guide: list[str]) -> bytes:
+@dataclass(frozen=True)
+class Choice:
+    """칸에 다는 드롭다운. 값 목록(values)이나 다른 시트의 열(source=(시트, 머리글))에서 고른다.
+
+    strict이면 목록에 없는 값을 엑셀이 막고, 아니면 경고만 하고 직접 적게 둔다.
+    엑셀의 드롭다운은 입력 편의일 뿐이다. 붙여넣기로 우회되므로 서버 검사는 그대로 한다.
+    """
+
+    values: tuple[str, ...] = ()
+    source: tuple[str, str] | None = None
+    strict: bool = True
+
+
+def _column(sheet, header: str) -> str | None:
+    headers = [cell.value for cell in sheet[1]]
+    return get_column_letter(headers.index(header) + 1) if header in headers else None
+
+
+def _add_choices(workbook: Workbook, choices: dict[tuple[str, str], Choice]) -> None:
+    lists = None
+    for (title, header), choice in choices.items():
+        sheet = workbook[title]
+        letter = _column(sheet, header)
+        if letter is None:
+            continue
+        if choice.source is not None:
+            source_title, source_header = choice.source
+            source = _column(workbook[source_title], source_header)
+            if source is None:
+                continue
+            # 같은 파일에서 새로 적은 행도 바로 고를 수 있게 열 전체를 가리킨다.
+            formula = f"{quote_sheetname(source_title)}!${source}$2:${source}${MAX_ROWS + 1}"
+        else:
+            if not choice.values:
+                continue
+            if lists is None:
+                lists = workbook.create_sheet(CHOICE_SHEET)
+                lists.sheet_state = "hidden"
+            position = 1 if lists["A1"].value is None else lists.max_column + 1
+            target = get_column_letter(position)
+            lists.cell(row=1, column=position, value=f"{title} · {header}")
+            for row, value in enumerate(choice.values, start=2):
+                lists.cell(row=row, column=position, value=value).data_type = "s"
+            last = len(choice.values) + 1
+            formula = f"{quote_sheetname(CHOICE_SHEET)}!${target}$2:${target}${last}"
+        validation = DataValidation(
+            type="list",
+            formula1=formula,
+            allow_blank=True,
+            showErrorMessage=True,
+            errorStyle="stop" if choice.strict else "warning",
+            errorTitle=header,
+            error=(
+                "목록에서 골라 주세요."
+                if choice.strict
+                else "목록에 없는 값입니다. 그대로 쓰려면 '예'를 누르세요."
+            ),
+        )
+        validation.add(f"{letter}2:{letter}{MAX_ROWS + 1}")
+        sheet.add_data_validation(validation)
+
+
+def build_workbook(
+    sheets: list[tuple[str, list[str], list[list[str]]]],
+    guide: list[str],
+    choices: dict[tuple[str, str], Choice] | None = None,
+) -> bytes:
+    """choices는 (시트, 머리글)마다 다는 드롭다운이다."""
     workbook = Workbook()
     workbook.remove(workbook.active)
     for title, headers, rows in sheets:
@@ -130,6 +200,7 @@ def build_workbook(sheets: list[tuple[str, list[str], list[list[str]]]], guide: 
     notes.column_dimensions["A"].width = 100
     for cell in notes["A"]:
         cell.alignment = Alignment(wrap_text=True)
+    _add_choices(workbook, choices or {})
     buffer = BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()

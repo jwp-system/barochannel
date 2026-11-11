@@ -628,60 +628,6 @@
     if (select) select.addEventListener("change", () => loadDefault("기안 소속을 바꿔 그 소속의 등록 승인선으로 다시 채웠습니다."));
   }
 
-  function setupPin() {
-    const input = document.getElementById("pin-input");
-    if (!input) return;
-    const form = document.getElementById("pin-form");
-    const box = document.querySelector(".pin-dots");
-    const dots = box.querySelectorAll("i");
-    const title = document.getElementById("pin-title");
-    const steps = form.dataset.steps.split(",");
-    const titles = (form.dataset.titles || "").split("|");
-    let step = 0;
-
-    function render() {
-      dots.forEach((dot, index) => dot.classList.toggle("on", index < input.value.length));
-      if (title && titles[step]) title.replaceChildren(titles[step], document.createElement("br"), "입력해 주세요");
-    }
-
-    function restart() {
-      step = 0;
-      input.value = "";
-      steps.forEach((name) => { form.elements[name].value = ""; });
-      render();
-    }
-
-    function update(value) {
-      input.value = value.replace(/\D/g, "").slice(0, 6);
-      render();
-      if (input.value.length < 6) return;
-      form.elements[steps[step]].value = input.value;
-      if (step === steps.length - 1) {
-        htmx.trigger(form, "submit");
-        return;
-      }
-      step += 1;
-      input.value = "";
-      render();
-    }
-
-    input.addEventListener("input", () => update(input.value));
-    document.querySelector(".keypad").addEventListener("click", (event) => {
-      const key = event.target.dataset.key;
-      if (!key) return;
-      update(key === "back" ? input.value.slice(0, -1) : input.value + key);
-      input.focus();
-    });
-    form.addEventListener("htmx:afterRequest", (event) => {
-      if (event.detail.xhr.getResponseHeader("HX-Redirect")) return;
-      restart();
-      box.classList.remove("shake");
-      void box.offsetWidth;
-      box.classList.add("shake");
-    });
-  }
-
-  document.addEventListener("DOMContentLoaded", setupPin);
   document.addEventListener("DOMContentLoaded", setupTodoCount);
   document.addEventListener("DOMContentLoaded", setupMentions);
   document.addEventListener("DOMContentLoaded", setupLinePicker);

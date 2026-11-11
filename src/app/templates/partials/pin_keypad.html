@@ -1,8 +1,0 @@
-<div class="pin-dots" aria-hidden="true">{% for _ in range(6) %}<i></i>{% endfor %}</div>
-<div id="pin-message" role="alert"></div>
-<div class="keypad">
-  {% for key in "123456789" %}<button type="button" data-key="{{ key }}">{{ key }}</button>{% endfor %}
-  {% if first_time %}<button type="button" class="keypad-back" hx-post="/logout">로그아웃</button>{% else %}<a class="keypad-back" href="/">취소</a>{% endif %}
-  <button type="button" data-key="0">0</button>
-  <button type="button" data-key="back" aria-label="지우기">←</button>
-</div>

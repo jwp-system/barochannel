@@ -20,12 +20,9 @@ SUBMIT = '<span class="audit-action">상신'
 PERMISSION = '<span class="audit-action">권한 변경'
 
 
-def test_only_admin_in_admin_mode_sees_audit() -> None:
+def test_only_system_admin_sees_audit() -> None:
     assert browser(add_user("someone")).get("/admin/audit").status_code == 403
-    admin = add_user("admin")
-    signed_in = browser(admin)
-    assert signed_in.get("/admin/audit").status_code in (303, 307)
-    assert admin_browser(admin).get("/admin/audit").status_code == 200
+    assert admin_browser(add_user("admin")).get("/admin/audit").status_code == 200
 
 
 def test_filters_by_kind_actor_and_target() -> None:

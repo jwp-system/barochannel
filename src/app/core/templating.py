@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core.config import get_settings
 from app.core.security import csrf_token
 from app.models import CHANNEL_TYPES
 from app.services.admin import is_system_admin
@@ -37,6 +38,7 @@ templates.env.globals["CHANNEL_TYPES"] = CHANNEL_TYPES
 templates.env.globals["csrf_token"] = csrf_token
 templates.env.globals["asset"] = asset
 templates.env.globals["is_system_admin"] = is_system_admin
+templates.env.globals["company_name"] = get_settings().company_name
 
 
 def render_text(name: str, **context: object) -> str:

@@ -64,7 +64,7 @@ def test_seed_refuses_non_empty_database() -> None:
         apply_seed()
 
 
-def test_seed_admin_starts_in_initial_pin_state() -> None:
+def test_seed_admin_has_no_password_hash() -> None:
     apply_seed()
 
     async def load() -> User:
@@ -72,7 +72,7 @@ def test_seed_admin_starts_in_initial_pin_state() -> None:
             return await session.scalar(select(User).where(User.email == "admin@test.local"))
 
     admin = run(load())
-    assert admin.pin_hash is None and admin.password_hash is None
+    assert admin.password_hash is None
 
 
 def test_seed_shows_spec_permission_examples() -> None:

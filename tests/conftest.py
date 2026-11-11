@@ -33,13 +33,10 @@ from app.models import (  # noqa: E402
     UserDepartment,
     WorkspaceGroup,
 )
-from app.services.admin import hash_pin  # noqa: E402
 from app.services.storage import ensure_bucket  # noqa: E402
 
 PASSWORD = "test-password"
-ADMIN_PIN = "482913"
 PASSWORD_HASH = hash_password(PASSWORD)
-ADMIN_PIN_HASH = hash_pin(ADMIN_PIN)
 
 
 def run[T](awaitable: Awaitable[T]) -> T:
@@ -118,9 +115,6 @@ async def _add(*rows: object) -> None:
 
 
 def add_user(name: str, **fields: object) -> User:
-    if name == "admin":
-        # 대부분의 시험은 PIN 변경을 마친 관리자를 쓴다. 초기 상태는 pin_hash=None으로 만든다.
-        fields.setdefault("pin_hash", ADMIN_PIN_HASH)
     user = User(name=name, email=f"{name}@test.local", password_hash=PASSWORD_HASH, **fields)
     run(_add(user))
     return user
@@ -172,11 +166,8 @@ def browser(user: User) -> Browser:
 
 
 def admin_browser(user: User) -> Browser:
-    """PIN까지 확인한 시스템 관리자 브라우저."""
-    signed_in = browser(user)
-    response = signed_in.post("/admin/pin", data={"pin": ADMIN_PIN})
-    assert "HX-Redirect" in response.headers, response.text
-    return signed_in
+    """시스템 관리자 브라우저. 로그인하면 바로 관리자 모드다."""
+    return browser(user)
 
 
 def post_id(response) -> int:

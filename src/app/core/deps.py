@@ -6,24 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionDep
 from app.models import Department, User, UserDepartment
-from app.services.admin import (
-    PIN_CHANGE_PATH,
-    admin_mode_active,
-    is_system_admin,
-    must_change_pin,
-)
+from app.services.admin import is_system_admin
 from app.services.permissions import Authorizer
 
 
 class LoginRequired(Exception):
-    pass
-
-
-class AdminPinRequired(Exception):
-    pass
-
-
-class PinChangeRequired(Exception):
     pass
 
 
@@ -45,9 +32,8 @@ async def current_user(request: Request, session: SessionDep) -> User:
     if user is None or not user.is_active:
         request.session.clear()
         raise LoginRequired
-    if must_change_pin(user) and request.url.path != PIN_CHANGE_PATH:
-        raise PinChangeRequired
-    user.admin_mode = admin_mode_active(request.session, user)
+    # 시스템 관리자는 로그인하면 바로 관리자 모드다.
+    user.admin_mode = is_system_admin(user)
     user.department_name = await primary_department_name(session, user.id)
     return user
 
@@ -65,8 +51,6 @@ AuthzDep = Annotated[Authorizer, Depends(get_authorizer)]
 async def require_admin(user: CurrentUser) -> User:
     if not is_system_admin(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "시스템 관리자만 할 수 있습니다.")
-    if not user.admin_mode:
-        raise AdminPinRequired
     return user
 
 

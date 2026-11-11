@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
@@ -9,16 +9,7 @@ from app.core.deps import CurrentUser
 from app.core.security import check_password, csrf_token, hash_password
 from app.core.templating import fragment, templates
 from app.models import User
-from app.services.admin import (
-    PIN_CHANGE_PATH,
-    admin_login,
-    change_pin,
-    check_pin,
-    is_admin_email,
-    is_system_admin,
-    must_change_pin,
-    safe_next,
-)
+from app.services.admin import admin_login, is_admin_email, is_system_admin
 
 router = APIRouter(tags=["auth"], include_in_schema=False)
 
@@ -49,84 +40,13 @@ async def login(
     request.session.clear()
     request.session["user_id"] = user.id
     csrf_token(request)
-    return Response(headers={"HX-Redirect": PIN_CHANGE_PATH if must_change_pin(user) else "/"})
+    return Response(headers={"HX-Redirect": "/"})
 
 
 @router.post("/logout")
 async def logout(request: Request) -> Response:
     request.session.clear()
     return Response(headers={"HX-Redirect": "/login"})
-
-
-def require_system_admin(user: User) -> None:
-    if not is_system_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "시스템 관리자만 할 수 있습니다.")
-
-
-@router.get("/admin/pin", response_class=HTMLResponse)
-async def pin_page(
-    request: Request,
-    user: CurrentUser,
-    next_url: Annotated[str, Query(alias="next")] = "/admin/org",
-) -> Response:
-    require_system_admin(user)
-    return templates.TemplateResponse(
-        request, "admin_pin.html", {"user": user, "next_url": safe_next(next_url)}
-    )
-
-
-@router.post("/admin/pin")
-async def verify_pin(
-    request: Request,
-    session: SessionDep,
-    user: CurrentUser,
-    pin: Annotated[str, Form(max_length=6)],
-    next_url: Annotated[str, Form(alias="next")] = "/admin/org",
-) -> Response:
-    require_system_admin(user)
-    result = await check_pin(session, user, pin)
-    if result.admin_until is None:
-        return fragment("partials/message.html", message=result.message)
-    request.session["admin_until"] = result.admin_until
-    return Response(headers={"HX-Redirect": safe_next(next_url)})
-
-
-@router.get(PIN_CHANGE_PATH, response_class=HTMLResponse)
-async def pin_change_page(
-    request: Request,
-    user: CurrentUser,
-    next_url: Annotated[str, Query(alias="next")] = "/admin/org",
-) -> Response:
-    require_system_admin(user)
-    return templates.TemplateResponse(
-        request,
-        "admin_pin_change.html",
-        {"user": user, "next_url": safe_next(next_url), "first_time": must_change_pin(user)},
-    )
-
-
-@router.post(PIN_CHANGE_PATH)
-async def pin_change(
-    request: Request,
-    session: SessionDep,
-    user: CurrentUser,
-    current_pin: Annotated[str, Form(max_length=6)],
-    new_pin: Annotated[str, Form(max_length=6)],
-    confirm_pin: Annotated[str, Form(max_length=6)],
-    next_url: Annotated[str, Form(alias="next")] = "/admin/org",
-) -> Response:
-    require_system_admin(user)
-    result = await change_pin(session, user, current_pin, new_pin, confirm_pin)
-    if result.admin_until is None:
-        return fragment("partials/message.html", message=result.message)
-    request.session["admin_until"] = result.admin_until
-    return Response(headers={"HX-Redirect": safe_next(next_url)})
-
-
-@router.post("/admin/exit")
-async def exit_admin_mode(request: Request, _: CurrentUser) -> Response:
-    request.session.pop("admin_until", None)
-    return Response(headers={"HX-Redirect": "/"})
 
 
 @router.get("/account/password", response_class=HTMLResponse)

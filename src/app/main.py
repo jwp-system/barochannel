@@ -2,7 +2,6 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import urlencode
 
 import uvicorn
 from botocore.exceptions import BotoCoreError, ClientError
@@ -12,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import DEV_SECRET_KEY, get_settings
 from app.core.db import engine
-from app.core.deps import AdminPinRequired, LoginRequired, PinChangeRequired
+from app.core.deps import LoginRequired
 from app.core.security import verify_csrf
 from app.core.sessions import ClockTolerantSessionMiddleware
 from app.core.templating import APP_DIR
@@ -33,7 +32,6 @@ from app.routers import (
     spaces,
     work,
 )
-from app.services.admin import PIN_CHANGE_PATH
 from app.services.realtime import hub
 from app.services.storage import ensure_bucket
 from app.services.work import screens
@@ -75,19 +73,6 @@ async def login_required(request: Request, _: LoginRequired) -> Response:
     return RedirectResponse("/login", status.HTTP_303_SEE_OTHER)
 
 
-async def admin_pin_required(request: Request, _: AdminPinRequired) -> Response:
-    target = f"/admin/pin?{urlencode({'next': request.url.path})}"
-    if request.headers.get("HX-Request"):
-        return Response(headers={"HX-Redirect": target})
-    return RedirectResponse(target, status.HTTP_303_SEE_OTHER)
-
-
-async def pin_change_required(request: Request, _: PinChangeRequired) -> Response:
-    if request.headers.get("HX-Request"):
-        return Response(headers={"HX-Redirect": PIN_CHANGE_PATH})
-    return RedirectResponse(PIN_CHANGE_PATH, status.HTTP_303_SEE_OTHER)
-
-
 def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
@@ -107,8 +92,6 @@ def create_app() -> FastAPI:
         https_only=not settings.debug,
     )
     application.add_exception_handler(LoginRequired, login_required)
-    application.add_exception_handler(AdminPinRequired, admin_pin_required)
-    application.add_exception_handler(PinChangeRequired, pin_change_required)
     application.mount("/static", CachedStaticFiles(directory=APP_DIR / "static"), name="static")
 
     @application.get("/favicon.ico", include_in_schema=False)

@@ -12,16 +12,8 @@ from sqlalchemy import text
 from app.core.config import Settings, get_settings
 from app.core.db import SessionLocal, engine
 from app.seed import EMAIL_DOMAIN, SAMPLE_PASSWORD, seed
-from app.services.admin import reset_pin
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1"}
-
-
-async def run_reset_pin() -> bool:
-    async with SessionLocal() as session:
-        done = await reset_pin(session)
-    await engine.dispose()
-    return done
 
 
 def reset_refusal(settings: Settings) -> str | None:
@@ -76,14 +68,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="바로채널 서버 관리 도구")
     parser.add_argument(
         "command",
-        choices=["reset-pin", "reset-dev"],
-        help="reset-pin: PIN을 초기 상태로, reset-dev: 개발 DB를 지우고 샘플 데이터를 넣는다",
+        choices=["reset-dev"],
+        help="reset-dev: 개발 DB를 지우고 샘플 데이터를 넣는다",
     )
-    args = parser.parse_args()
-    if args.command == "reset-pin":
-        done = asyncio.run(run_reset_pin())
-        print("PIN을 초기 상태로 되돌렸습니다." if done else "관리자 계정이 아직 없습니다.")
-        return
+    parser.parse_args()
     refusal = reset_refusal(get_settings())
     if refusal:
         parser.error(refusal)
