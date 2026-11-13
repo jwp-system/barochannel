@@ -10,7 +10,7 @@
   {% endif %}
   {% if w.can_detail or w.message.link_url %}
   <div class="row wrap work-links">
-    {% if w.can_detail %}<a class="button soft work-open" href="/posts/{{ v.post.parent_post_id or v.post.id }}#detail-{{ v.post.id }}" data-work-frame="/works/messages/{{ v.post.id }}/detail" data-work-title="{{ w.command_label }}">상세 보기</a>{% endif %}
+    {% if w.can_detail %}<a class="button soft work-open" href="/posts/{{ v.post.parent_post_id or v.post.id }}#detail-{{ v.post.id }}" data-work-frame="/works/messages/{{ v.post.id }}/detail" data-work-title="{{ w.command_label }}" data-work-width="{{ w.detail_size.width or '' }}" data-work-height="{{ w.detail_size.height or '' }}">상세 보기</a>{% endif %}
     {% if w.message.link_url %}<a class="button soft" href="{{ w.message.link_url }}" target="_blank" rel="noopener noreferrer">{{ w.message.link_label }}</a>{% endif %}
   </div>
   {% endif %}

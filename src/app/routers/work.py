@@ -72,7 +72,7 @@ def json_error(code: int, message: str) -> JSONResponse:
 @router.get("/channels/{channel_id}/commands")
 async def list_commands(
     channel_id: int, session: SessionDep, authz: AuthzDep
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """입력창 자동완성. 쓰기 권한이 없으면 빈 목록이다. 화면이 없어진 명령어는 빼고 보여준다."""
     channel, access = await channel_access(session, authz, channel_id)
     if channel.type != "work" or not access.write:

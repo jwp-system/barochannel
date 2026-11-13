@@ -713,10 +713,18 @@
     workFrame.src = url;
     workFrame.title = title || "업무 화면";
     body.replaceChildren(workFrame);
-    workModal.dataset.size = size || "medium";
+    // 크기는 화면 정의(screen.toml)의 px 값이다. 비어 있으면 창에 꽉 채운다.
+    const width = Number(size && size.width) || 0;
+    const height = Number(size && size.height) || 0;
+    workModal.style.setProperty("--work-width", width ? `${width}px` : "100vw");
+    workModal.style.setProperty("--work-height", height ? `${height}px` : "100dvh");
     workDirty = false;
     if (!workModal.open) workModal.showModal();
     workFrame.focus();
+  }
+
+  function linkSize(link) {
+    return { width: link.dataset.workWidth, height: link.dataset.workHeight };
   }
 
   function closeWorkModal(force) {
@@ -752,13 +760,13 @@
       const link = event.target.closest("[data-work-frame]");
       if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
       event.preventDefault();
-      openWorkFrame(link.dataset.workFrame, "medium", link.dataset.workTitle);
+      openWorkFrame(link.dataset.workFrame, linkSize(link), link.dataset.workTitle);
     });
     // 상세 링크(/posts/번호#detail-글번호)를 직접 열면 상세 화면을 띄운다.
     document.addEventListener("DOMContentLoaded", () => {
       const found = /^#detail-(\d+)$/.exec(location.hash);
       const link = found && document.querySelector(`[data-work-frame="/works/messages/${found[1]}/detail"]`);
-      if (link) openWorkFrame(link.dataset.workFrame, "medium", link.dataset.workTitle);
+      if (link) openWorkFrame(link.dataset.workFrame, linkSize(link), link.dataset.workTitle);
     });
   }
 

@@ -14,6 +14,7 @@ from app.core.db import SessionLocal
 from app.models import AuditLog, Post, WorkCommand, WorkMessage
 from app.services import work
 from app.services.work import (
+    FrameSize,
     MessageError,
     ScreenError,
     api_parts,
@@ -179,6 +180,31 @@ def test_screens_are_loaded_and_checked(tmp_path) -> None:
         load_screen(write_screen(tmp_path / "Bad-Name", good))
 
 
+def test_screen_sizes_come_from_definition(tmp_path) -> None:
+    todo = screens()["todo"]
+    assert todo.size_for("index") == FrameSize(560, 720)
+    assert todo.size_for("find") == FrameSize(720, 760)
+    assert todo.size_for("detail") == FrameSize(420, 720)
+
+    pages = '[pages]\nindex = "등록"\n'
+    sized = load_screen(write_screen(tmp_path / "px", "size = { width = 900 }\n" + pages))
+    assert sized.size_for("index") == FrameSize(900, 720)
+    full = load_screen(write_screen(tmp_path / "full", 'size = "full"\n' + pages))
+    assert full.size_for("index").as_dict() == {"width": None, "height": None}
+    for index, bad in enumerate(
+        (
+            'size = "huge"',
+            "size = { width = 100 }",
+            "size = { width = 640, depth = 3 }",
+            'size = { width = "640" }',
+            '[sizes]\nnope = "small"',
+        )
+    ):
+        toml = pages + bad + "\n" if bad.startswith("[") else bad + "\n" + pages
+        with pytest.raises(ScreenError, match="size"):
+            load_screen(write_screen(tmp_path / f"bad{index}", toml))
+
+
 def test_api_paths_are_split_strictly() -> None:
     assert api_parts("") == ()
     assert api_parts("17/actions/done") == ("17", "actions", "done")
@@ -263,7 +289,7 @@ def test_command_list_opens_screen_for_writers(ready) -> None:
             "label": "할 일 등록",
             "description": "",
             "url": f"/works/{command_id()}/pages/index",
-            "size": "medium",
+            "size": {"width": 560, "height": 720},
         }
     ]
     assert browser(reader).get(f"/channels/{channel.id}/commands").json() == []

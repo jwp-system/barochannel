@@ -261,9 +261,16 @@ def test_first_login_opens_admin_pages_without_pin() -> None:
 def test_admin_bar_sits_below_brand_with_company_name(monkeypatch) -> None:
     monkeypatch.setitem(templates.env.globals, "company_name", "가나상사")
     page = browser(add_user("admin")).get("/").text
-    assert "가나상사</a>" in page and "바로채널</a>" not in page
+    assert '"brand-name">가나상사</span>' in page and '"brand-name">바로채널</span>' not in page
+    assert '<small class="brand-by">Powered by 바로Channel</small>' in page
     assert page.index('class="user-bar"') < page.index('class="admin-bar"')
     assert 'class="admin-bar"' not in browser(add_user("plain")).get("/").text
+
+
+def test_default_brand_hides_system_mark(monkeypatch) -> None:
+    monkeypatch.setitem(templates.env.globals, "company_name", "바로채널")
+    page = browser(add_user("plain")).get("/").text
+    assert '"brand-name">바로채널</span>' in page and "brand-by" not in page
 
 
 def test_logout_closes_admin_mode() -> None:

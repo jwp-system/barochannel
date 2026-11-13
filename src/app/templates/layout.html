@@ -3,7 +3,7 @@
 <div class="frame">
   {% if user is defined and user %}
   <header class="user-bar">
-    <a class="brand" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="26" height="26">{{ company_name }}</a>
+    <a class="brand" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="26" height="26"><span class="brand-text"><span class="brand-name">{{ company_name }}</span>{% if company_name != "바로채널" %}<small class="brand-by">Powered by 바로Channel</small>{% endif %}</span></a>
     <a class="user-chip" href="/more" aria-label="내 정보: {{ user.name }}, {{ user.department_name or ('시스템 관리자' if is_system_admin(user) else '소속 없음') }}">
       <span class="avatar" aria-hidden="true">{{ user.name[:1] }}</span>
       <span class="user-text">

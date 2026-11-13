@@ -35,7 +35,15 @@ PLACEHOLDER = re.compile(r"^\{[a-z_]{1,30}\}$")
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 EVENT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,58}$")
 API_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
-SIZES = ("small", "medium", "large", "full")
+# 팝업 크기 프리셋. 너비·높이는 px이고 None이면 브라우저 창에 꽉 채운다.
+SIZES: dict[str, tuple[int | None, int | None]] = {
+    "small": (420, 720),
+    "medium": (560, 720),
+    "large": (840, 720),
+    "full": (None, None),
+}
+WIDTH_RANGE = (320, 1920)
+HEIGHT_RANGE = (240, 1200)
 
 MAX_LABEL = 100
 MAX_TEXT = 1000
@@ -85,6 +93,42 @@ class ApiRoute:
 
 
 @dataclass(frozen=True)
+class FrameSize:
+    """업무 화면 팝업 크기. 휴대폰에서는 늘 전체 화면이고, 창보다 크면 창에 맞춘다."""
+
+    width: int | None
+    height: int | None
+
+    def as_dict(self) -> dict[str, int | None]:
+        return {"width": self.width, "height": self.height}
+
+
+DEFAULT_SIZE = FrameSize(*SIZES["medium"])
+
+
+def _size(name: str, value: object) -> FrameSize:
+    """프리셋 이름("large") 또는 { width = 640, height = 600 }. 빠진 쪽은 medium 값이다."""
+    if isinstance(value, str):
+        if value not in SIZES:
+            raise ScreenError(
+                f"{name}: size는 {', '.join(SIZES)} 중 하나이거나 width·height입니다."
+            )
+        return FrameSize(*SIZES[value])
+    if not isinstance(value, dict) or not value or set(value) - {"width", "height"}:
+        raise ScreenError(f"{name}: size는 프리셋 이름이나 {{ width, height }}여야 합니다.")
+    sizes = []
+    for key, (low, high), default in (
+        ("width", WIDTH_RANGE, DEFAULT_SIZE.width),
+        ("height", HEIGHT_RANGE, DEFAULT_SIZE.height),
+    ):
+        number = value.get(key, default)
+        if isinstance(number, bool) or not isinstance(number, int) or not low <= number <= high:
+            raise ScreenError(f"{name}: size.{key}는 {low}~{high} 사이의 정수(px)입니다.")
+        sizes.append(number)
+    return FrameSize(*sizes)
+
+
+@dataclass(frozen=True)
 class Screen:
     name: str
     title: str
@@ -92,8 +136,13 @@ class Screen:
     # 시작 화면 이름과 표시 이름. 명령어가 이 중 하나를 고른다.
     pages: dict[str, str]
     detail: str | None
-    size: str
+    # 화면 전체 기본 크기와 시작·상세 화면별 크기
+    size: FrameSize
+    page_sizes: dict[str, FrameSize]
     api: tuple[ApiRoute, ...]
+
+    def size_for(self, page: str) -> FrameSize:
+        return self.page_sizes.get(page, self.size)
 
     def allows(self, method: str, parts: Sequence[str]) -> bool:
         return any(route.matches(method, parts) for route in self.api)
@@ -129,9 +178,13 @@ def load_screen(folder: Path) -> Screen:
             raise ScreenError(f"{name}: 화면 이름이 맞지 않습니다: {page}")
         if not (folder / f"{page}.html").is_file():
             raise ScreenError(f"{name}: {page}.html이 없습니다.")
-    size = raw.get("size", "medium")
-    if size not in SIZES:
-        raise ScreenError(f"{name}: size는 {', '.join(SIZES)} 중 하나입니다.")
+    size = _size(name, raw.get("size", "medium"))
+    page_sizes = raw.get("sizes", {})
+    if not isinstance(page_sizes, dict):
+        raise ScreenError(f"{name}: sizes는 화면 이름별 크기 표여야 합니다.")
+    for page in page_sizes:
+        if page not in pages and page != detail:
+            raise ScreenError(f"{name}: sizes에 없는 화면입니다: {page}")
     api = raw.get("api", [])
     if not isinstance(api, list):
         raise ScreenError(f"{name}: api는 목록이어야 합니다.")
@@ -142,6 +195,7 @@ def load_screen(folder: Path) -> Screen:
         pages={key: str(value) for key, value in pages.items()},
         detail=detail or None,
         size=size,
+        page_sizes={page: _size(f"{name}.{page}", value) for page, value in page_sizes.items()},
         api=tuple(_route(item) for item in api),
     )
 
@@ -408,6 +462,7 @@ class WorkView:
     command_label: str
     # 명령어가 살아 있고 화면에 상세가 있을 때만 상세를 연다.
     can_detail: bool
+    detail_size: FrameSize = DEFAULT_SIZE
 
     @property
     def author_name(self) -> str | None:
@@ -433,6 +488,9 @@ async def work_views(session: AsyncSession, post_ids: Sequence[int]) -> dict[int
             and command.archived_at is None
             and screen is not None
             and screen.detail is not None,
+            detail_size=screen.size_for(screen.detail)
+            if screen and screen.detail
+            else DEFAULT_SIZE,
         )
     return views
 
@@ -451,9 +509,9 @@ def frame_url(command: WorkCommand) -> str:
     return f"/works/{command.id}/pages/{command.page}"
 
 
-def frame_size(command: WorkCommand) -> str:
+def frame_size(command: WorkCommand) -> dict[str, int | None]:
     screen = screen_for(command)
-    return screen.size if screen else "medium"
+    return (screen.size_for(command.page) if screen else DEFAULT_SIZE).as_dict()
 
 
 def json_object(body: bytes) -> Any:

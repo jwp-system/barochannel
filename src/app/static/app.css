@@ -371,6 +371,10 @@ button.danger { background: var(--danger); color: #fff; }
 .brand { align-items: center; color: var(--text); display: inline-flex; font-size: 16px; font-weight: 800; gap: 8px; letter-spacing: -0.02em; text-decoration: none; }
 .brand img { display: block; flex: none; }
 .brand-large { font-size: 22px; gap: 10px; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.brand-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand-by { color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: 0; white-space: nowrap; }
+.brand-large .brand-by { font-size: 13px; }
 .user-chip { align-items: center; border-radius: var(--radius-sm); color: var(--text); display: flex; gap: 10px; min-width: 0; padding: 4px 8px; text-decoration: none; }
 .user-chip:hover { background: var(--fill); }
 .user-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -437,16 +441,12 @@ a.button.soft { background: var(--accent-soft); color: var(--accent-soft-text); 
 .modal-head h2 { margin: 6px 0 0; }
 .modal-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .modal [aria-invalid=true] { outline: 2px solid var(--danger); }
-.work-modal { overflow: hidden; }
-.work-modal[data-size=small] { max-width: 420px; }
-.work-modal[data-size=large] { max-width: 840px; }
-.work-modal[data-size=full] { max-width: calc(100% - 32px); }
-.work-frame { border: 0; display: block; height: min(720px, calc(100dvh - 48px)); width: 100%; }
-.work-modal[data-size=full] .work-frame { height: calc(100dvh - 48px); }
+.work-modal { --work-width: 560px; --work-height: 720px; max-width: min(var(--work-width), calc(100% - 32px)); overflow: hidden; }
+.work-frame { border: 0; display: block; height: min(var(--work-height), calc(100dvh - 48px)); width: 100%; }
 .required { color: var(--danger); }
 .command-list { list-style: none; margin: 0; padding: 0; }
 .command-list li { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 640px) {
-  .modal, .work-modal[data-size] { border-radius: 0; height: 100dvh; max-height: none; max-width: none; width: 100%; }
-  .work-frame, .work-modal[data-size=full] .work-frame { height: 100dvh; }
+  .modal, .work-modal { border-radius: 0; height: 100dvh; max-height: none; max-width: none; width: 100%; }
+  .work-frame { height: 100dvh; }
 }

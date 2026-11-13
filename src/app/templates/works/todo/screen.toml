@@ -2,6 +2,7 @@
 title = "할 일"
 description = "샘플 할 일 시스템에서 할 일을 등록하고 찾는다"
 detail = "detail"
+# 팝업 크기. 프리셋(small | medium | large | full) 또는 { width = 너비, height = 높이 } (px).
 size = "medium"
 
 # 화면이 부를 수 있는 외부 API. 경로는 명령어의 연동 주소 뒤에 붙는다. {이름}은 경로 한 마디다.
@@ -17,3 +18,8 @@ api = [
 [pages]
 index = "할 일 등록"
 find = "할 일 찾기"
+
+# 시작·상세 화면별 팝업 크기. 적지 않은 화면은 위의 size를 쓴다.
+[sizes]
+find = { width = 720, height = 760 }
+detail = "small"
